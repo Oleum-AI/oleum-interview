@@ -1,0 +1,3 @@
+-- Part 2 schema — the large, multi-subsystem dataset.
+-- TODO: define the 2-3 subsystem schemas once the domain is locked.
+--       Too big to fit in one context window on purpose.
