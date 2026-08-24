@@ -1,24 +1,25 @@
 # tools.py
-# The tools the agent can call, plus the Databricks connection.
+# The tools the agent can call, plus the database connection.
 #
 # There are two tools to start:
-#   - run_sql:       run a query against the Databricks SQL warehouse and see the rows.
+#   - run_sql:       run a query against a local SQLite database and see the rows.
 #   - submit_answer: the agent's FINAL, structured answer (this is how we enforce a
-#                    structured output — the run ends when the agent calls it).
+#                    structured output — the run ends when it's called).
 #
 # Add more tools here: define the JSON schema, add it to TOOLS, and handle it in agent.py.
 
 import os
+import sqlite3
 
 # --- Tool schemas (normalized; llm.py translates these per provider) -------------------
 
 RUN_SQL_TOOL = {
     "name": "run_sql",
-    "description": "Run a read-only SQL query against the Databricks warehouse and return the resulting rows.",
+    "description": "Run a read-only SQL query against the database and return the resulting rows.",
     "parameters": {
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "The SQL query to execute."}
+            "query": {"type": "string", "description": "The SQL query to execute (SQLite dialect)."}
         },
         "required": ["query"],
     },
@@ -41,22 +42,19 @@ SUBMIT_ANSWER_TOOL = {
 TOOLS = [RUN_SQL_TOOL, SUBMIT_ANSWER_TOOL]
 
 
-# --- Databricks connection -------------------------------------------------------------
+# --- Database connection ---------------------------------------------------------------
+# A local SQLite file, opened read-only so the agent can't mutate the data.
+# Set DB_PATH in .env.  Build a DB from a .sql script with:  sqlite3 data.db < schema.sql
 
 _conn = None
 
 
 def _get_conn():
-    """Lazily open (and reuse) a single warehouse connection."""
+    """Lazily open (and reuse) a single read-only SQLite connection."""
     global _conn
     if _conn is None:
-        from databricks import sql
-
-        _conn = sql.connect(
-            server_hostname=os.environ["DATABRICKS_SERVER_HOSTNAME"],
-            http_path=os.environ["DATABRICKS_HTTP_PATH"],
-            access_token=os.environ["DATABRICKS_TOKEN"],
-        )
+        path = os.environ.get("DB_PATH", "data.db")
+        _conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     return _conn
 
 
@@ -64,13 +62,12 @@ def run_sql(query: str, max_rows: int = 100) -> str:
     """Execute a query and return the rows as text. Errors are returned as text so the
     model can read them and self-correct rather than crashing the run."""
     try:
-        with _get_conn().cursor() as cur:
-            cur.execute(query)
-            if cur.description is None:
-                return "OK (no rows returned)."
-            cols = [c[0] for c in cur.description]
-            rows = cur.fetchmany(max_rows)
-            return _format(cols, rows, max_rows)
+        cur = _get_conn().execute(query)
+        if cur.description is None:
+            return "OK (no rows returned)."
+        cols = [d[0] for d in cur.description]
+        rows = cur.fetchmany(max_rows)
+        return _format(cols, rows, max_rows)
     except Exception as e:  # noqa: BLE001 - surface any DB error back to the model
         return f"ERROR: {e}"
 
