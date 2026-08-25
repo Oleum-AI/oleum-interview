@@ -1,4 +1,4 @@
-# !/usr/bin/env bash
+#!/usr/bin/env bash
 # ./start.sh ["your question here"]   (no question -> prompts you)
 set -euo pipefail
 
