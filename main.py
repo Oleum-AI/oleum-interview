@@ -33,8 +33,6 @@ def answer_once(question: str):
 
 
 def main():
-    # An optional first question can come from the command line; after that we
-    # keep prompting so the session stays open until the user exits.
     pending = " ".join(sys.argv[1:]).strip()
     console.print("[dim]Ask a question. Ctrl-C or type 'exit' to quit.[/dim]")
     while True:
