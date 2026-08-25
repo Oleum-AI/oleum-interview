@@ -29,7 +29,10 @@ def answer_once(question: str):
     console.print(result.get("answer", ""))
     if result.get("sql"):
         console.print(Panel(Syntax(result["sql"], "sql", theme="ansi_dark"), title="SQL", border_style="cyan"))
-    console.print(f"[dim]({elapsed:.1f}s)[/dim]")
+    console.print(
+        f"[dim]({elapsed:.1f}s · {result.get('tool_calls', 0)} tool calls · "
+        f"{result.get('tokens', 0):,} tokens)[/dim]"
+    )
 
 
 def main():

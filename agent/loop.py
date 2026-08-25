@@ -33,10 +33,13 @@ def run_agent(question: str, model=None, verbose=True) -> dict:
         {"role": "user", "content": question},
     ]
     previous_response_id = None
+    n_tool_calls = 0
+    total_tokens = 0
 
     while True:
         turn = complete(input_items, TOOLS, previous_response_id=previous_response_id, model=model)
         previous_response_id = turn["id"]
+        total_tokens += turn.get("usage", {}).get("total_tokens", 0)
 
         if verbose and turn["reasoning"]:
             _rule()
@@ -64,6 +67,7 @@ def run_agent(question: str, model=None, verbose=True) -> dict:
                 outputs.append({"type": "function_call_output", "call_id": tc["call_id"], "output": "Recorded."})
                 continue
 
+            n_tool_calls += 1
             if verbose:
                 _rule()
                 console.print(f"[bold cyan][TOOL CALL: {name}][/bold cyan]")
@@ -75,6 +79,9 @@ def run_agent(question: str, model=None, verbose=True) -> dict:
             outputs.append({"type": "function_call_output", "call_id": tc["call_id"], "output": result})
 
         if final is not None:
+            final = dict(final)
+            final["tool_calls"] = n_tool_calls
+            final["tokens"] = total_tokens
             return final
 
         input_items = outputs

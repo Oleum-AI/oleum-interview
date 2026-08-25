@@ -15,11 +15,17 @@ def _parse(resp):
                 "name": item.name,
                 "arguments": json.loads(item.arguments or "{}"),
             })
+    usage = getattr(resp, "usage", None)
     return {
         "id": resp.id,
         "content": content,
         "reasoning": "\n".join(reasoning),
         "tool_calls": tool_calls,
+        "usage": {
+            "input_tokens": getattr(usage, "input_tokens", 0),
+            "output_tokens": getattr(usage, "output_tokens", 0),
+            "total_tokens": getattr(usage, "total_tokens", 0),
+        } if usage else {},
     }
 
 

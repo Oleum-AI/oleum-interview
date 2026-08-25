@@ -3,7 +3,7 @@
 A small agent that answers analyst questions about data in a local SQLite database.
 It's a skeleton: it runs, but it's deliberately basic. Your job is to build on it.
 
-Your task is described in **`docs/PART_2.md`** — read that first.
+Your task is described in **`INSTRUCTIONS.md`** — read that first.
 
 ## Project layout
 
@@ -11,11 +11,12 @@ Your task is described in **`docs/PART_2.md`** — read that first.
 .
 ├── main.py                     # entry point — ask the agent questions
 ├── start.sh                    # one-step setup + run
-├── docs/
-│   ├── PART_2.md               # your brief — start here
-│   └── part2/
-│       ├── QUESTIONS.md        # the questions to answer
-│       └── guidance/           # the company's reference docs (large — read on demand)
+├── INSTRUCTIONS.md             # your brief — start here
+├── docs/                       # the company's reference docs (large — read on demand)
+│   ├── reference.md            #   code sets, reporting conventions, exclusions
+│   ├── order_management.md
+│   ├── fulfillment_and_shipping.md
+│   └── warehouse_and_inventory.md
 ├── agent/                      # the agent
 │   ├── loop.py                 #   the agent loop        <- you'll work here most
 │   ├── llm.py                  #   the OpenAI model call
@@ -63,7 +64,7 @@ The database is large — dozens of tables across order management, fulfillment/
 and warehouse & inventory. The schema is discoverable at runtime (e.g. `sqlite_master`),
 but the schema alone won't tell you what coded columns mean or which reporting
 conventions apply. The company's reference documentation lives under
-**`docs/part2/guidance/`** — it is organized by topic and is far too large to read all
+**`docs/`** — it is organized by topic and is far too large to read all
 at once, so the agent has to find and read only what it needs.
 
 ## Where to build
