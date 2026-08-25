@@ -3475,9 +3475,7 @@ order_id, sku)`.
 
 **Filters.** Exclude ORDER_PRIORITY `internal_test`; exclude ORDER_STATUS
 `cancelled`. (Draft orders carry an `order_total` too but represent uncommitted
-demand; the standard revenue population also excludes ORDER_STATUS `draft`. If
-your finance convention recognizes revenue only at fulfillment, additionally
-restrict to `status = :order_status_fulfilled` — state which you used.)
+demand; the standard revenue population also excludes ORDER_STATUS `draft`.)
 
 **Worked query — total recognized revenue (header grain):**
 
