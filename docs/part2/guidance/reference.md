@@ -1,8 +1,8 @@
 # Reference: Keys, Codes & Reporting Conventions
 
 Cross-cutting reference for the logistics dataset. The three domain guides
-(`01_order_management.md`, `02_fulfillment_and_shipping.md`,
-`03_warehouse_and_inventory.md`) describe each domain's tables and name the
+(`order_management.md`, `fulfillment_and_shipping.md`,
+`warehouse_and_inventory.md`) describe each domain's tables and name the
 code set every coded column uses; this document defines those code sets, the
 identifier/key conventions that bridge the domains, and the standard reporting
 rules (exclusions, metric definitions). Coded columns resolve in two steps:
@@ -294,7 +294,7 @@ them everywhere.
 - **Allocated vs on-hand** — `quantity_on_hand` is the physical stock in the
   warehouse; `quantity_allocated` is the portion already committed to orders.
   Available-to-promise is on-hand minus allocated. See
-  `03_warehouse_and_inventory.md` and the **Metrics and Definitions** section.
+  `warehouse_and_inventory.md` and the **Metrics and Definitions** section.
 - **Lot** — a batch of received stock, tracked with received and optional expiry
   dates (`inventory_lots`).
 - **Lane** — a standard origin→destination transport route with a mode and
@@ -306,15 +306,15 @@ The corpus is four documents. Three cover the operational domains, and this
 document is the cross-cutting reference. Use this index to jump to the right
 place.
 
-- **01_order_management.md** — orders, order lines, customers, addresses,
+- **order_management.md** — orders, order lines, customers, addresses,
   payments, promotions, gift cards; order totals, discounts, and channels.
-- **02_fulfillment_and_shipping.md** — shipments, packages, legs, tracking,
+- **fulfillment_and_shipping.md** — shipments, packages, legs, tracking,
   exceptions, pick tasks, returns, carriers, services, facilities, lanes; on-time
   and transit semantics.
-- **03_warehouse_and_inventory.md** — warehouses, zones, bins, suppliers,
+- **warehouse_and_inventory.md** — warehouses, zones, bins, suppliers,
   inventory positions, lots, the transaction ledger, replenishment, receipts,
   transfers, adjustments, cycle counts.
-- **04_reference_keys_codes_and_conventions.md** *(this document)* — the
+- **reference.md** *(this document)* — the
   cross-cutting reference, organized into eight sections:
   - **Overview and Orientation** — what the company does, the domains, the full
     table map, global conventions, the glossary, and this index.
@@ -1245,7 +1245,7 @@ Other cross-references you will want:
 
 ### Domain 1 — Order Management code sets
 
-#### CUSTOMER_SEGMENT
+#### Code: CUSTOMER_SEGMENT
 
 Classifies a customer by the kind of buyer they are. Segment drives pricing tiers,
 payment terms eligibility (for example, net-terms billing is typically offered to
@@ -1260,7 +1260,7 @@ business and government segments, not consumers), and how the account is service
 
 **Used by:** `customers.segment_code`.
 
-#### ADDRESS_TYPE
+#### Code: ADDRESS_TYPE
 
 Describes the role an address plays on a customer's account. A single customer can hold
 several addresses of different types.
@@ -1277,7 +1277,7 @@ several addresses of different types.
 resolving where an order shipped, a valid ship-to address will be of type `shipping (2)`
 or `both (3)`.
 
-#### ORDER_STATUS
+#### Code: ORDER_STATUS
 
 The lifecycle state of a sales order. This is the canonical order-fulfillment progression
 from creation through to a terminal outcome.
@@ -1300,7 +1300,7 @@ confirmed before shipment); `returned (6)` is a post-fulfillment terminal. Only
 `fulfilled (4)` guarantees one or more shipments exist; `draft (1)` and `cancelled (5)`
 never have shipments. See the **Lifecycle and Statuses** section for the full state machine.
 
-#### ORDER_PRIORITY
+#### Code: ORDER_PRIORITY
 
 The handling tier assigned to an order. Priority governs how urgently the order is
 processed and shipped, and it also carries one non-production tier used for internal
@@ -1329,7 +1329,7 @@ The real customer-facing tiers are `1 standard`, `2 expedited`, and `3 rush`. No
 gap between `3` and `7` is intentional — `internal_test` is deliberately numbered apart
 from the real tiers so it is never mistaken for the "most urgent" tier.
 
-#### ORDER_CHANNEL
+#### Code: ORDER_CHANNEL
 
 The sales channel through which an order originated. Channel supports omnichannel
 reporting — comparing web against app against store and marketplace performance.
@@ -1344,7 +1344,7 @@ reporting — comparing web against app against store and marketplace performanc
 
 **Used by:** `orders.channel_code`.
 
-#### PROMO_TYPE
+#### Code: PROMO_TYPE
 
 The mechanic of a promotion — how the discount is calculated. The `promotions.value`
 column is interpreted according to this type.
@@ -1363,7 +1363,7 @@ column is interpreted according to this type.
 booked `discount_amount` for realized-discount reporting and `promo_type_code` to
 categorize the promotion.
 
-#### PAYMENT_METHOD
+#### Code: PAYMENT_METHOD
 
 How a payment against an order was tendered. A single order can have multiple payment
 rows (e.g. a gift-card partial plus a card).
@@ -1379,7 +1379,7 @@ rows (e.g. a gift-card partial plus a card).
 
 **Used by:** `payments.method_code`.
 
-#### PAYMENT_STATUS
+#### Code: PAYMENT_STATUS
 
 The state of an individual payment transaction. This tracks the money movement for a
 payment, which is distinct from the order's own fulfillment status.
@@ -1399,7 +1399,7 @@ payment, which is distinct from the order's own fulfillment status.
 unsuccessful terminals in which no funds are ultimately collected. For "money actually
 collected," `captured (2)` is the anchor state.
 
-#### GIFTCARD_STATUS
+#### Code: GIFTCARD_STATUS
 
 The state of a stored-value gift card, tracking whether it can still be spent.
 
@@ -1415,7 +1415,7 @@ The state of a stored-value gift card, tracking whether it can still be spent.
 **Note:** `active (1)` is the only state where `current_balance` is expected to be
 spendable; `redeemed (2)`, `expired (3)`, and `void (4)` are non-spendable terminals.
 
-#### GIFTCARD_TXN_TYPE
+#### Code: GIFTCARD_TXN_TYPE
 
 The kind of movement recorded on a gift card's transaction ledger
 (`gift_card_transactions`). Each row raises or lowers the card's balance.
@@ -1437,7 +1437,7 @@ have a null `order_id`.
 
 ### Domain 2 — Fulfillment code sets
 
-#### SERVICE_LEVEL
+#### Code: SERVICE_LEVEL
 
 The shipping service tier of a carrier service (`carrier_services`), describing the
 speed/mode class the customer or business selected.
@@ -1452,7 +1452,7 @@ speed/mode class the customer or business selected.
 
 **Used by:** `carrier_services.service_level_code`.
 
-#### FACILITY_TYPE
+#### Code: FACILITY_TYPE
 
 The role a facility plays in the transportation network. Facilities are the nodes that
 shipment legs move between (`shipment_legs.from_facility_id` / `to_facility_id`) and that
@@ -1473,7 +1473,7 @@ outbound and moved across the dock without being put away into storage — which
 differs from a `hub (2)` (which sorts) and from an `origin_dc (1)` (which holds inventory
 and picks orders).
 
-#### SHIP_STATUS
+#### Code: SHIP_STATUS
 
 The delivery state of a shipment. This is the customer-facing shipment lifecycle from
 label creation to a terminal outcome.
@@ -1497,7 +1497,7 @@ deliver. **A delivered-late shipment is `status = 5 (delivered)` AND
 `delivered_date > promised_date`** — see the **Metrics and Definitions** section. Note the
 terminal integer here is `5`, unlike orders (`4`); do not carry one over to the other.
 
-#### PACKAGING_TYPE
+#### Code: PACKAGING_TYPE
 
 The physical packaging of a package within a shipment (`packages`). Drives dimensional
 and handling considerations.
@@ -1512,7 +1512,7 @@ and handling considerations.
 
 **Used by:** `packages.packaging_type_code`.
 
-#### TRANSPORT_MODE
+#### Code: TRANSPORT_MODE
 
 The mode of transport for a movement. Applies both to individual shipment legs and to the
 standing route lanes between facilities.
@@ -1527,7 +1527,7 @@ standing route lanes between facilities.
 
 **Used by:** `shipment_legs.mode_code`, `route_lanes.mode_code`.
 
-#### LEG_STATUS
+#### Code: LEG_STATUS
 
 The state of a single leg of a shipment's journey (`shipment_legs`). A shipment can have
 multiple sequential legs (`leg_seq`), each moving between two facilities.
@@ -1545,7 +1545,7 @@ multiple sequential legs (`leg_seq`), each moving between two facilities.
 normal path. `completed (3)` is the terminal success state for a leg — note again this is
 `3`, distinct from the shipment's own `delivered (5)`. `failed (4)` is a terminal failure.
 
-#### TRACK_EVENT
+#### Code: TRACK_EVENT
 
 The type of a tracking event recorded against a shipment (`tracking_events`). These are
 the discrete scan/status milestones that accumulate over a shipment's life; a shipment
@@ -1569,7 +1569,7 @@ through successive facilities. To read a shipment's current overall state use
 `shipments.status` (SHIP_STATUS); use `tracking_events` for the granular history and to
 detect events like `customs_hold (4)` or `delivery_failed (6)`.
 
-#### EXCEPTION_TYPE
+#### Code: EXCEPTION_TYPE
 
 The category of a delivery exception (`delivery_exceptions`) — why a shipment was
 disrupted. Exceptions are logged with a `reported_ts` and, once handled, a `resolved_ts`.
@@ -1589,7 +1589,7 @@ disrupted. Exceptions are logged with a `reported_ts` and, once handled, a `reso
 Exceptions relate to (but are not the same as) the shipment being in `SHIP_STATUS =
 exception (6)`.
 
-#### PICK_STATUS
+#### Code: PICK_STATUS
 
 The state of a warehouse pick task (`pick_tasks`) — the job of physically picking an
 order's items from bins. One pick task belongs to one order and one warehouse.
@@ -1609,7 +1609,7 @@ is the normal flow. `completed (4)` is the success terminal (again `4`, matching
 but not shipments/legs). `short (5)` is a terminal outcome where the pick could not be
 fully filled — useful for identifying stock/availability problems.
 
-#### RETURN_REASON
+#### Code: RETURN_REASON
 
 Why a customer initiated a return (`returns`). Captured at the return-header level.
 
@@ -1623,7 +1623,7 @@ Why a customer initiated a return (`returns`). Captured at the return-header lev
 
 **Used by:** `returns.reason_code`.
 
-#### RETURN_STATUS
+#### Code: RETURN_STATUS
 
 The processing state of a return (`returns`), from customer request through to a terminal
 resolution.
@@ -1643,7 +1643,7 @@ refunded (4)` is the normal flow. `refunded (4)` is the success terminal (note `
 matching the shipment terminal). `rejected (5)` is a terminal denial. A return typically
 gets a `disposition_code` (see below) once the goods are received.
 
-#### RETURN_DISPOSITION
+#### Code: RETURN_DISPOSITION
 
 What is done with the physical goods after a return is received (`returns.disposition_code`).
 This column is nullable — a disposition is only decided once goods are in hand, so
@@ -1658,7 +1658,7 @@ early-stage returns may have none.
 
 **Used by:** `returns.disposition_code` (nullable).
 
-#### ITEM_CONDITION
+#### Code: ITEM_CONDITION
 
 The physical condition grade of a returned or received item. Used both on return lines
 (assessing what came back) and on receipt lines (grading inbound supplier stock).
@@ -1680,7 +1680,7 @@ it. Typically only `new (1)` return goods are candidates for `restock`.
 
 ### Domain 3 — Warehouse & Inventory code sets
 
-#### ZONE_TYPE
+#### Code: ZONE_TYPE
 
 The functional type of a zone within a warehouse (`warehouse_zones`). Zones organize a
 warehouse into areas dedicated to different operations, and bins live inside zones.
@@ -1695,7 +1695,7 @@ warehouse into areas dedicated to different operations, and bins live inside zon
 
 **Used by:** `warehouse_zones.zone_type_code`.
 
-#### SUPPLIER_STATUS
+#### Code: SUPPLIER_STATUS
 
 The relationship state of a supplier (`suppliers`) — whether the company is currently
 buying from them.
@@ -1712,7 +1712,7 @@ buying from them.
 **Note:** Only `active (1)` suppliers are normally orderable. `pending_approval (4)` is a
 pre-active onboarding state, and `terminated (3)` is the end-of-relationship terminal.
 
-#### PO_STATUS
+#### Code: PO_STATUS
 
 The state of a replenishment/purchase order (`replenishment_orders`) — a purchase order
 placed on a supplier to restock a warehouse. Named PO_STATUS because these are the
@@ -1733,7 +1733,7 @@ normal flow. `received (4)` is the success terminal (`4`, matching orders/picks 
 shipments). `cancelled (5)` is an early terminal. Receipts against a PO post to
 `receipts`/`receipt_lines`, and the goods movement lands in `inventory_transactions`.
 
-#### INV_TXN_TYPE
+#### Code: INV_TXN_TYPE
 
 The type of movement in the inventory ledger (`inventory_transactions`). This ledger is
 the single running record of every quantity change at a warehouse; each row carries a
@@ -1761,7 +1761,7 @@ transfer itself lives in `stock_transfers` / `stock_transfer_lines`; adjustments
 their own detail in `inventory_adjustments`; receipts in `receipts`/`receipt_lines`. The
 `inventory_transactions` ledger is where all of them post their quantity effect.
 
-#### INVOICE_STATUS
+#### Code: INVOICE_STATUS
 
 The state of an accounts-payable invoice. Shared by two invoice tables — invoices we
 receive from suppliers for goods, and invoices we receive from carriers for freight.
@@ -1781,7 +1781,7 @@ the normal flow. `paid (4)` is the success terminal. `disputed (5)` is an off-pa
 that a submitted/approved invoice can enter; it may later resolve back toward payment or
 be written off. For "outstanding payables," count invoices not yet `paid (4)`.
 
-#### TRANSFER_STATUS
+#### Code: TRANSFER_STATUS
 
 The state of a stock transfer between two warehouses (`stock_transfers`) — an internal
 inventory move, not a customer shipment.
@@ -1801,7 +1801,7 @@ shipment legs but **not** the shipment, order, pick, PO, or return terminals. `c
 (4)` is an early terminal. A completed transfer posts a `transfer_out (3)` at the origin
 and a `transfer_in (4)` at the destination in `inventory_transactions` (see INV_TXN_TYPE).
 
-#### ADJ_REASON
+#### Code: ADJ_REASON
 
 Why a manual inventory adjustment was made (`inventory_adjustments`). Explains the
 `quantity_delta` on each adjustment row.
@@ -1821,7 +1821,7 @@ Why a manual inventory adjustment was made (`inventory_adjustments`). Explains t
 either way depending on whether the count/recheck was over or under. Every adjustment also
 posts an `adjustment (5)` row to `inventory_transactions`.
 
-#### CYCLE_COUNT_STATUS
+#### Code: CYCLE_COUNT_STATUS
 
 The state of a cycle-count task (`cycle_counts`) — a scheduled physical recount of a
 specific item (and optionally bin) at a warehouse, used to keep recorded inventory honest.
@@ -1947,7 +1947,7 @@ document.
 
 ---
 
-### Order lifecycle
+### Lifecycle: Order
 
 **Column:** `orders.status`  **Code set:** ORDER_STATUS
 **History:** `order_status_history`
@@ -2053,7 +2053,7 @@ noted in `note`), pick the appropriate occurrence with `MIN`/`MAX` on
 
 ---
 
-### Payment lifecycle
+### Lifecycle: Payment
 
 **Column:** `payments.status_code`  **Code set:** PAYMENT_STATUS
 
@@ -2103,7 +2103,7 @@ number matches the company standard.
 
 ---
 
-### Gift card lifecycle
+### Lifecycle: Gift card
 
 **Column:** `gift_cards.status_code`  **Code set:** GIFTCARD_STATUS
 **Ledger:** `gift_card_transactions` (**code set:** GIFTCARD_TXN_TYPE)
@@ -2154,7 +2154,7 @@ GROUP BY gc.gift_card_id, gc.current_balance;
 
 ---
 
-### Shipment lifecycle
+### Lifecycle: Shipment
 
 **Column:** `shipments.status`  **Code set:** SHIP_STATUS
 
@@ -2191,7 +2191,7 @@ where `delivered_date <= promised_date`. Shipments that are not yet `delivered`
 have a NULL `delivered_date` and should not be counted as on-time or late; they
 are simply still in flight (or in `exception`/`lost`). See
 the **Metrics and Definitions** section for the exact on-time definition and
-`02_fulfillment_and_shipping.md` for transit-time semantics.
+`fulfillment_and_shipping.md` for transit-time semantics.
 
 ```sql
 -- Late deliveries: delivered AND arrived after the promise
@@ -2233,7 +2233,7 @@ as either on-time or late.
 
 ---
 
-### Shipment leg lifecycle
+### Lifecycle: Shipment leg
 
 **Column:** `shipment_legs.status`  **Code set:** LEG_STATUS
 
@@ -2256,7 +2256,7 @@ use `arrived_ts - departed_ts` on `completed` legs; a NULL `arrived_ts` means th
 leg has not finished and should be excluded from a transit-duration measure. Legs
 are ordered by `leg_seq` within a shipment, so the first leg departs origin and
 the last leg ends at the delivery-side facility. See
-`02_fulfillment_and_shipping.md` for multi-leg routing and how legs relate to
+`fulfillment_and_shipping.md` for multi-leg routing and how legs relate to
 `route_lanes` and `facilities`.
 
 ```sql
@@ -2283,7 +2283,7 @@ decide whether it means the shipment (SHIP_STATUS) or the individual movements
 
 ---
 
-### Tracking events (append-only stream)
+### Lifecycle: Tracking events (append-only stream)
 
 **Column:** `tracking_events.event_code`  **Code set:** TRACK_EVENT
 
@@ -2315,7 +2315,7 @@ though they describe the same real-world moment.
 
 ---
 
-### Delivery exceptions (open vs resolved)
+### Lifecycle: Delivery exceptions (open vs resolved)
 
 **Column:** `delivery_exceptions.exception_type_code`  **Code set:** EXCEPTION_TYPE
 
@@ -2359,7 +2359,7 @@ durations that quietly distort the average.
 
 ---
 
-### Pick task lifecycle
+### Lifecycle: Pick task
 
 **Column:** `pick_tasks.status_code`  **Code set:** PICK_STATUS
 **Detail:** `pick_lines` (references product by `item_code`)
@@ -2383,7 +2383,7 @@ inventory accuracy issue — see cycle counts below). `completed_ts` is NULL unt
 the task reaches a finished state. `pick_lines` holds the item-level detail of a
 pick, referencing the product by `item_code` (the inventory-side identifier, not
 `sku`) and an optional `bin_id` for where the item was pulled from. See
-`03_warehouse_and_inventory.md` for how picks draw down inventory.
+`warehouse_and_inventory.md` for how picks draw down inventory.
 
 ```sql
 -- Short-pick rate by warehouse (an inventory-accuracy warning sign)
@@ -2396,7 +2396,7 @@ ORDER BY short_rate DESC;
 
 ---
 
-### Return lifecycle
+### Lifecycle: Return
 
 **Columns:** `returns.status`  **Code set:** RETURN_STATUS
 **Reason:** `returns.reason_code` — **code set:** RETURN_REASON
@@ -2463,13 +2463,13 @@ WHERE status = :refunded;            -- RETURN_STATUS 'refunded'
   be `scrap`, `refurbish`, or `return_to_supplier`; the disposition column is
   authoritative for what actually happened.
 
-See `02_fulfillment_and_shipping.md` for the returns flow end to end and
-`03_warehouse_and_inventory.md` for how a `restock` disposition posts back to
+See `fulfillment_and_shipping.md` for the returns flow end to end and
+`warehouse_and_inventory.md` for how a `restock` disposition posts back to
 inventory.
 
 ---
 
-### Replenishment / purchase order (PO) lifecycle
+### Lifecycle: Replenishment / purchase order (PO)
 
 **Column:** `replenishment_orders.status`  **Code set:** PO_STATUS
 **Detail:** `replenishment_lines`; receiving via `receipts` / `receipt_lines`
@@ -2509,7 +2509,7 @@ recorded as `receipts` against the PO (`repl_id`), and each receipt's
 (ITEM_CONDITION — `new`/`opened`/`damaged`/`defective`). A single PO can generate
 multiple receipts over time, which is exactly what drives the `partial` state.
 Summing receipt-line quantities reconciles to the line-level `qty_received`. See
-`03_warehouse_and_inventory.md` and the **Pricing, Costs & Billing** section (for supplier
+`warehouse_and_inventory.md` and the **Pricing, Costs & Billing** section (for supplier
 invoicing against the PO).
 
 ```sql
@@ -2533,7 +2533,7 @@ GROUP BY rl.repl_id;
 
 ---
 
-### Stock transfer lifecycle
+### Lifecycle: Stock transfer
 
 **Column:** `stock_transfers.status_code`  **Code set:** TRANSFER_STATUS
 **Detail:** `stock_transfer_lines`
@@ -2566,7 +2566,7 @@ detail (`stock_transfer_lines`) tracks `qty_requested`, `qty_shipped`, and
 line level even though the header carries a single status. A completed transfer
 posts movements to the inventory ledger at both warehouses (a transfer-out at the
 source and a transfer-in at the destination — see the inventory transaction types
-in `03_warehouse_and_inventory.md`).
+in `warehouse_and_inventory.md`).
 
 ```sql
 -- Transfers still on the road (shipped but not yet received) as of TODAY
@@ -2590,7 +2590,7 @@ transfer closed."
 
 ---
 
-### Supplier status
+### Lifecycle: Supplier status
 
 **Column:** `suppliers.status_code`  **Code set:** SUPPLIER_STATUS
 
@@ -2608,7 +2608,7 @@ value: `active` is the usable state, and the others are non-usable for new
 sourcing. When analyzing current sourcing options, filter to `active`; historical
 POs and invoices from a supplier that is now `on_hold`/`terminated` still exist
 and should not be dropped just because the supplier's current status changed. See
-`03_warehouse_and_inventory.md` for supplier/product sourcing and
+`warehouse_and_inventory.md` for supplier/product sourcing and
 the **Pricing, Costs & Billing** section for supplier invoicing.
 
 Two common analyst mistakes with supplier status are worth calling out. First,
@@ -2631,7 +2631,7 @@ WHERE status_code = :active;          -- SUPPLIER_STATUS 'active'
 
 ---
 
-### Invoice status (supplier and carrier invoices)
+### Lifecycle: Invoice status (supplier and carrier invoices)
 
 **Columns:** `supplier_invoices.status_code` and `carrier_invoices.status_code`
 **Code set:** INVOICE_STATUS (the **same** code set for both tables)
@@ -2676,7 +2676,7 @@ same thing everywhere."
 
 ---
 
-### Cycle count status
+### Lifecycle: Cycle count status
 
 **Column:** `cycle_counts.status_code`  **Code set:** CYCLE_COUNT_STATUS
 
@@ -2705,7 +2705,7 @@ yet `reconciled` count has a measured variance that has not yet been actioned. A
 non-zero `variance` is the accuracy signal: positive means more units were found
 than the book showed, negative means fewer. Reconciliation typically results in
 an `inventory_adjustments` row (reason `cycle_count`) that corrects on-hand and
-posts to the inventory ledger. See `03_warehouse_and_inventory.md` for how
+posts to the inventory ledger. See `warehouse_and_inventory.md` for how
 adjustments and counts feed inventory accuracy.
 
 ---
@@ -2816,7 +2816,7 @@ the **Code Dictionary** section) but they do not have a terminal state or transi
   INV_TXN_TYPE): `receipt`, `shipment`, `transfer_out`, `transfer_in`,
   `adjustment`, `return_restock`. This is the *type* of a movement on the
   inventory ledger, not a status. The ledger is append-only; each row is a
-  signed `quantity_delta`. See `03_warehouse_and_inventory.md`.
+  signed `quantity_delta`. See `warehouse_and_inventory.md`.
 - **Inventory adjustments** — `inventory_adjustments.reason_code` (code set
   ADJ_REASON): `cycle_count`, `damage`, `theft`, `found`, `correction`. The
   reason for a manual stock change.
@@ -3061,7 +3061,7 @@ The internal-test rule is the headline, but a correct report usually applies two
 or three exclusions at once. Decide, for every question, which of the following
 apply.
 
-#### 2.1 Cancelled orders are not revenue
+#### Convention 2.1: Cancelled orders are not revenue
 
 A cancelled order (ORDER_STATUS `cancelled`) never shipped and was never
 recognized. Exclude cancelled orders from **revenue, realized order counts,
@@ -3077,7 +3077,7 @@ column — there is no cancelled state in SHIP_STATUS, for instance, and the
 integer that means cancelled for orders means something entirely different
 elsewhere (see the **Code Dictionary** section).
 
-#### 2.2 Draft orders are not yet real demand
+#### Convention 2.2: Draft orders are not yet real demand
 
 A draft order (ORDER_STATUS `draft`) is a started-but-not-committed order: a
 cart, a quote, a work-in-progress that the customer or a rep has not placed.
@@ -3098,7 +3098,7 @@ WHERE o.priority_code <> :internal_test_priority   -- ORDER_PRIORITY internal_te
                        :order_status_cancelled)     -- ORDER_STATUS cancelled; see the Code Dictionary section
 ```
 
-#### 2.3 Returned orders — keep them in most reporting
+#### Convention 2.3: Returned orders — keep them in most reporting
 
 A returned order (ORDER_STATUS `returned`) was placed, paid for, fulfilled, and
 shipped — real demand and real revenue — and then some or all of it came back.
@@ -3113,7 +3113,7 @@ gross figures. This is a common decode slip because both feel like "the order
 went away" — they do not mean the same thing, and they live at different values
 of the same ORDER_STATUS code set (see the **Code Dictionary** section).
 
-#### 2.4 Multiple shipments, partial fulfillment, and the order grain
+#### Convention 2.4: Multiple shipments, partial fulfillment, and the order grain
 
 An order is not always one shipment. A single order can be split across several
 shipments (partial releases, multi-warehouse sourcing, back-ordered lines that
@@ -3126,7 +3126,7 @@ you count orders.** Counting `shipments` when the business asked about `orders`,
 or vice versa, is a grain error that silently multiplies or divides your number
 by the average shipments-per-order.
 
-#### 2.5 De-duplication and fan-out
+#### Convention 2.5: De-duplication and fan-out
 
 Two different concerns share the word "double-count," keep them separate:
 
@@ -3157,7 +3157,7 @@ across a child-fanned join. Detailed patterns are in
 the **Query Recipes and Pitfalls** section; the metric definitions in the **Metrics and Definitions** section are each
 written to aggregate at the correct grain.
 
-#### 2.6 Use `is_active` for the *current* set, not for history
+#### Convention 2.6: Use `is_active` for the *current* set, not for history
 
 `products`, `customers`, `carriers`, and `warehouses` carry an `is_active` flag.
 It marks whether the record is part of the **currently usable** master data — an
@@ -3179,7 +3179,7 @@ Applying `is_active` to a historical metric quietly drops legitimate history;
 omitting it from a "current state" question quietly includes retired records.
 Neither errors. Choose deliberately.
 
-#### 2.7 Pick the reporting date deliberately
+#### Convention 2.7: Pick the reporting date deliberately
 
 `TODAY` is **2024-12-31**. Every "as of now," "currently open," "overdue,"
 "aging," or "days since" calculation is measured against `2024-12-31`, not the
@@ -3197,7 +3197,7 @@ here is almost entirely about **two identifier vocabularies** and **the meaning
 of NULL**. Neither of these will ever raise an error; both will silently give
 you a wrong answer if you ignore them.
 
-#### 3.1 The two product-identifier systems
+#### Convention 3.1: The two product-identifier systems
 
 The same product is referenced by two different identifiers depending on which
 side of the business you are on:
@@ -3242,7 +3242,7 @@ the **Identifiers and Keys** section. Any cross-domain metric that spans the sel
 and the stock side (margin, days of supply, fill vs on-hand) touches this
 bridge — do not shortcut it.
 
-#### 3.2 What a NULL means, column by column
+#### Convention 3.2: What a NULL means, column by column
 
 NULL is used deliberately as a **lifecycle signal**: it means "not applicable
 yet" or "hasn't happened." Because a NULL is meaningful, the *presence* or
@@ -3292,7 +3292,7 @@ drops out of a `WHERE` clause and is silently excluded from `COUNT(column)` and
    leaving it in the denominator understates the on-time rate, counting it as
    on-time overstates it. The **Metrics and Definitions** section handles each rate's denominator explicitly.
 
-#### 3.3 One currency, one unit, one calendar — nothing to convert
+#### Convention 3.3: One currency, one unit, one calendar — nothing to convert
 
 Unlike many warehouses, this one has **no unit or timezone traps**:
 
@@ -3309,7 +3309,7 @@ So the only conversions you ever perform are the **product-identifier bridge**
 (Section 3.1) and code-value decodes (via the **Code Dictionary** section). If you find
 yourself writing an FX rate or a unit conversion, stop — there isn't one here.
 
-#### 3.4 Status decodes do not travel between tables
+#### Convention 3.4: Status decodes do not travel between tables
 
 Restating a rule from the **Lifecycle and Statuses** section because it is a data-quality
 issue too: `status` and `status_code` name **different code sets on different
@@ -3323,7 +3323,7 @@ table to another — always re-derive the code-set name for the table you are on
 and look the value up in the **Code Dictionary** section. This is the most common source of a
 plausible-but-wrong filter.
 
-#### 3.5 The inventory movement ledger — read the sign of `quantity_delta`
+#### Convention 3.5: The inventory movement ledger — read the sign of `quantity_delta`
 
 `inventory_transactions` is a **movement ledger**: one row per stock movement,
 carrying a signed `quantity_delta` and a `txn_type_code` from the **INV_TXN_TYPE**
@@ -3349,7 +3349,7 @@ source for a point-in-time position (Section 7 metrics); the ledger is the right
 source for *flow* over a period (throughput, turnover, days of supply). Do not
 substitute one for the other.
 
-#### 3.6 Nullable foreign keys and optional relationships
+#### Convention 3.6: Nullable foreign keys and optional relationships
 
 A handful of foreign keys are deliberately **optional** (nullable), and a NULL
 there means "no related record," not a broken join:
@@ -3454,7 +3454,7 @@ SELECT ... FROM reportable_orders o ...
 
 ---
 
-### 1. Recognized revenue
+### Metric: Recognized revenue
 
 **Definition.** The dollar value of sales we recognize: the sum of order value
 over **real, non-cancelled** customer orders. Internal-test orders and cancelled
@@ -3548,7 +3548,7 @@ Note that the header and line grains are separate queries; never mix them in one
 
 ---
 
-### 2. Order count and average order value (AOV)
+### Metric: Order count and average order value (AOV)
 
 **Definition.** *Order count* is the number of distinct reportable orders in the
 period. *Average order value* is recognized revenue divided by order count —
@@ -3583,7 +3583,7 @@ division; integer division in SQLite would truncate the average.
 
 ---
 
-### 3. On-time delivery rate and late delivery rate
+### Metric: On-time delivery rate and late delivery rate
 
 **Definition.** Among **delivered** shipments, the share that arrived on or
 before their promised date. A shipment is **delivered** when its status is the
@@ -3637,7 +3637,7 @@ service level, join `carrier_services` and group by `service_level_code`
 
 ---
 
-### 4. Average transit time
+### Metric: Average transit time
 
 **Definition.** For delivered shipments, the average number of days from ship to
 delivery: `delivered_date − ship_date`. Reported in days.
@@ -3670,7 +3670,7 @@ For median rather than mean transit time, compute it with a windowed ordering
 
 ---
 
-### 5. Order cycle time (order to shipment / delivery)
+### Metric: Order cycle time (order to shipment / delivery)
 
 **Definition.** How long from order placement to the order leaving (or arriving).
 Two variants:
@@ -3719,7 +3719,7 @@ denominators worth calling out when you present both.
 
 ---
 
-### 6. Fill rate / order fulfillment rate
+### Metric: Fill rate / order fulfillment rate
 
 **Definition.** The share of **eligible** orders that we successfully fulfilled.
 An order is **fulfilled** when its status is ORDER_STATUS `fulfilled`. The
@@ -3756,7 +3756,7 @@ shipped quantity comparison.
 
 ---
 
-### 7. Below reorder point / stockout risk
+### Metric: Below reorder point / stockout risk
 
 **Definition.** Inventory positions where physical stock has fallen to or below
 the reorder trigger: `quantity_on_hand < reorder_point`. These are the
@@ -3811,7 +3811,7 @@ network rather than positions, use `COUNT(DISTINCT i.item_code)`.
 
 ---
 
-### 8. Days of supply / inventory coverage
+### Metric: Days of supply / inventory coverage
 
 **Definition (conceptual).** How many days the current on-hand stock would last
 at the recent outbound rate: `days_of_supply = quantity_on_hand ÷ average daily
@@ -3866,7 +3866,7 @@ data gap, not "infinite coverage"; treat it as a review flag, not a pass.
 
 ---
 
-### 9. Inventory accuracy (cycle counts)
+### Metric: Inventory accuracy (cycle counts)
 
 **Definition.** How well the system's book quantity matches the physical count,
 measured from `cycle_counts`. The per-count **variance** =
@@ -3913,7 +3913,7 @@ PICK_STATUS or PO_STATUS here (the **Lifecycle and Statuses** section).
 
 ---
 
-### 10. Return rate
+### Metric: Return rate
 
 **Definition.** How much of what we sell comes back. Two standard denominators:
 
@@ -3981,7 +3981,7 @@ join fans out).
 
 ---
 
-### 11. Delivery exception rate
+### Metric: Delivery exception rate
 
 **Definition.** How often shipments hit a delivery problem. Exception rate =
 shipments with at least one delivery exception / total shipments. Can be split by
@@ -4039,7 +4039,7 @@ ORDER BY exception_count DESC;
 
 ---
 
-### 12. Gross margin
+### Metric: Gross margin
 
 **Definition.** Revenue minus cost of goods sold: `gross_margin = revenue −
 COGS`, and `gross_margin_pct = gross_margin ÷ revenue`. Revenue is the
@@ -4102,7 +4102,7 @@ invoices) or returns. A fully loaded margin subtracts those too — see the **Pr
 
 ---
 
-### 13. Invoice aging and DSO for accounts payable
+### Metric: Invoice aging and DSO for accounts payable
 
 **Definition.** These are **payables** (money we owe), from two invoice tables:
 `supplier_invoices` (what suppliers bill us for goods) and `carrier_invoices`
@@ -4164,7 +4164,7 @@ out separately when reporting collectible/payable balances.
 
 ---
 
-### 14. Perfect order / OTIF (on-time, in-full)
+### Metric: Perfect order / OTIF (on-time, in-full)
 
 **Definition.** OTIF — **on-time in full** — is the gold-standard service metric:
 the share of orders delivered **both** on time **and** complete. It combines two
@@ -4264,7 +4264,7 @@ figure so a low OTIF can be attributed to timeliness vs completeness.
 
 ---
 
-### 15. Inventory turnover
+### Metric: Inventory turnover
 
 **Definition.** How many times stock cycles through a location over a period:
 `turnover = units (or cost) shipped in the period ÷ average units (or cost) on
@@ -4322,7 +4322,7 @@ per-year figure, and say you did.
 
 ---
 
-### 16. Freight cost per delivered shipment
+### Metric: Freight cost per delivered shipment
 
 **Definition.** What transportation costs us per unit of service delivered:
 `freight cost per shipment = carrier freight billed ÷ delivered shipments`.
@@ -4379,7 +4379,7 @@ together.
 
 ---
 
-### 17. Supplier lead time and on-time PO receipt
+### Metric: Supplier lead time and on-time PO receipt
 
 **Definition.** How dependable our inbound supply is. Two measures:
 
@@ -4426,7 +4426,7 @@ to reorder-point and safety-stock decisions (Section 7).
 
 ---
 
-### 18. Pick productivity and pick cycle time
+### Metric: Pick productivity and pick cycle time
 
 **Definition.** How efficiently the warehouse assembles orders. Two useful cuts:
 
@@ -4472,7 +4472,7 @@ shelf.
 
 ---
 
-### 19. Payment capture / realization rate
+### Metric: Payment capture / realization rate
 
 **Definition.** The share of reportable order value that has been actually
 **captured** (collected), versus merely authorized, refunded, voided, or failed.
@@ -4513,7 +4513,7 @@ multiple partial captures — reconcile against the refund column.
 
 ---
 
-### 20. Net revenue after returns
+### Metric: Net revenue after returns
 
 **Definition.** Recognized revenue (Section 1) less the value of what came back:
 `net_revenue = gross recognized revenue − returned value`. Gross revenue keeps
@@ -4573,7 +4573,7 @@ the end, so the two one-to-many relationships never fan each other out
 
 ---
 
-### 21. Short-ship / backorder rate
+### Metric: Short-ship / backorder rate
 
 **Definition.** How often we fail to ship an order complete. Short-ship rate =
 orders where units shipped fell short of units ordered / eligible orders. It is
@@ -4620,7 +4620,7 @@ add `AND sh.units_shipped IS NOT NULL`.
 
 ---
 
-### 22. Notes on consistency across metrics
+### Metric: Notes on consistency across metrics
 
 A few cross-cutting reminders so numbers reconcile between reports and analysts:
 
@@ -4657,8 +4657,8 @@ amount is stored — product prices, order economics, payments and refunds, gift
 cards as tender, supplier and replenishment costs, product margin, and
 supplier/carrier billing — and explains which figure is authoritative for which
 purpose. It sits deliberately across the three domains, so it points back into
-`01_order_management.md` (orders and prices), `02_fulfillment_and_shipping.md`
-(returns and carrier billing), and `03_warehouse_and_inventory.md` (supplier and
+`order_management.md` (orders and prices), `fulfillment_and_shipping.md`
+(returns and carrier billing), and `warehouse_and_inventory.md` (supplier and
 replenishment costs).
 
 For canonical metric definitions (revenue, discount, margin as reported to the
@@ -4842,7 +4842,7 @@ free_shipping) characterizes the campaign; the *realized* discount to use in
 money math is always `order_promotions.discount_amount`, never a recomputation
 from `promotions.value`. An order may carry more than one promotion row, so sum
 per order, and most orders carry none, so LEFT JOIN and coalesce to zero. Full
-promotion mechanics are in `01_order_management.md`.
+promotion mechanics are in `order_management.md`.
 
 ```sql
 -- Total realized promotional discount by month (reporting-eligible orders)
@@ -4962,7 +4962,7 @@ A refund is the money side of a return. On the money side, a refund shows up as 
 payment in the **refunded** state of PAYMENT_STATUS. On the operational side, the
 return itself lives in `returns` / `return_lines` (with `returns.status` decoding
 against the RETURN_STATUS code set — a *different* set) and is documented in
-`02_fulfillment_and_shipping.md`. To tie a refund to what came back, join the
+`fulfillment_and_shipping.md`. To tie a refund to what came back, join the
 order's refunded payment to its return:
 
 ```sql
@@ -5004,7 +5004,7 @@ Use `NULLIF(..., 0)` on the denominator to avoid divide-by-zero in periods with
 no captures. Note that a refunded payment corresponds to a returned order, so the
 refund rate here tracks the return-driven refund flow; the operational return
 detail (reasons, dispositions, condition of goods) lives in
-`02_fulfillment_and_shipping.md`, and the payment amount is the money figure to
+`fulfillment_and_shipping.md`, and the payment amount is the money figure to
 use for financial refund reporting.
 
 ---
@@ -5013,7 +5013,7 @@ use for financial refund reporting.
 
 Gift cards are both something we sell and a form of payment. The card master and
 its balances live in `gift_cards`; the activity ledger is
-`gift_card_transactions`. Both are described in full in `01_order_management.md`;
+`gift_card_transactions`. Both are described in full in `order_management.md`;
 here is how they fit the money picture.
 
 - `gift_cards.initial_balance` — USD loaded at issue.
@@ -5118,7 +5118,7 @@ unless you want to show the SKU or name. The supplier's own status
 (`suppliers.status_code`, SUPPLIER_STATUS) matters for sourcing decisions — a
 cheaper supplier that is on hold or terminated is not actually available — so
 join `suppliers` and check status when the question is about *actionable*
-sourcing rather than raw catalog cost. See `03_warehouse_and_inventory.md`.
+sourcing rather than raw catalog cost. See `warehouse_and_inventory.md`.
 
 #### Product margin (price vs cost)
 
@@ -5184,7 +5184,7 @@ the **Query Recipes and Pitfalls** section.
 #### Replenishment costs
 
 `replenishment_orders` are our purchase orders to suppliers (see
-`03_warehouse_and_inventory.md` for the operational detail); `replenishment_lines`
+`warehouse_and_inventory.md` for the operational detail); `replenishment_lines`
 are their line items.
 
 - `replenishment_lines.unit_cost` — USD cost per unit on that purchase line, with
@@ -5209,7 +5209,7 @@ different set again — draft, open, partial, received, cancelled), which tells 
 whether `total_cost` represents a committed-but-open PO, a partially received
 one, or a fully received purchase. For "what did we actually buy and take in",
 filter to the received state and use `qty_received * unit_cost`; for "what is on
-order", use the open/partial states. See `03_warehouse_and_inventory.md` for the
+order", use the open/partial states. See `warehouse_and_inventory.md` for the
 replenishment lifecycle.
 
 #### Supplier spend and cost trends
@@ -5376,7 +5376,7 @@ ORDER BY c.name, ym;
 ```
 
 Shipment counts per carrier come from `shipments` (see
-`02_fulfillment_and_shipping.md`); join the two aggregates on carrier + month if
+`fulfillment_and_shipping.md`); join the two aggregates on carrier + month if
 you want an approximate cost-per-shipment, keeping in mind the invoice period and
 the ship dates will not align perfectly.
 
@@ -5525,9 +5525,9 @@ the replenishment order — different code sets, not interchangeable.
 For the reported metric definitions built on these columns — revenue, gross
 margin, discount rate, and the like — see the **Metrics and Definitions — the Canonical Catalog** section. For
 the order-side detail behind prices and promotions, see
-`01_order_management.md`. For returns and carrier operations behind refunds and
-freight billing, see `02_fulfillment_and_shipping.md`; for suppliers and
-replenishment behind purchase costs, see `03_warehouse_and_inventory.md`.
+`order_management.md`. For returns and carrier operations behind refunds and
+freight billing, see `fulfillment_and_shipping.md`; for suppliers and
+replenishment behind purchase costs, see `warehouse_and_inventory.md`.
 
 ---
 
@@ -5562,7 +5562,7 @@ warehouse schema as defined in the DDL. Today's reporting date is
 
 ---
 
-### Recipe 1 — Recognized revenue by month
+### Recipe: Recognized revenue by month
 
 Revenue is summed from `order_lines.line_total` (the amount actually charged per
 line), and it **excludes internal-test orders and cancelled orders** per
@@ -5587,7 +5587,7 @@ recommended revenue figure — see the **Metrics and Definitions — the Canonic
 
 ---
 
-### Recipe 2 — On-time vs late delivery rate
+### Recipe: On-time vs late delivery rate
 
 A shipment is **delivered late** when it reached the delivered state and its
 `delivered_date` is strictly after its `promised_date`; it is **on time** when
@@ -5608,11 +5608,11 @@ WHERE s.status = :ship_status_delivered   -- SHIP_STATUS; see the Code Dictionar
 
 Dates are `YYYY-MM-DD` strings, so a plain string comparison (`>`) orders them
 correctly; no `julianday` is needed just to compare two dates. Use `julianday`
-only when you need the number of days between them (Recipe 12).
+only when you need the number of days between them (see the *Days late for late shipments* recipe).
 
 ---
 
-### Recipe 3 — On-time rate by carrier
+### Recipe: On-time rate by carrier
 
 The same rate, broken out by carrier, with the carrier name attached.
 
@@ -5634,7 +5634,7 @@ ORDER BY on_time_pct DESC;
 
 ---
 
-### Recipe 4 — Items currently below reorder point
+### Recipe: Items currently below reorder point
 
 An item at a warehouse is **below reorder point** when
 `quantity_on_hand < reorder_point` (see the **Metrics and Definitions — the Canonical Catalog** section). Because
@@ -5661,7 +5661,7 @@ the common-mistakes section.
 
 ---
 
-### Recipe 5 — Inventory available (on-hand minus allocated) by warehouse
+### Recipe: Inventory available (on-hand minus allocated) by warehouse
 
 **Available** stock is `quantity_on_hand - quantity_allocated`. Summed per
 warehouse:
@@ -5684,7 +5684,7 @@ For availability of a single product across warehouses, add
 
 ---
 
-### Recipe 6 — Open replenishment POs and expected receipts
+### Recipe: Open replenishment POs and expected receipts
 
 Open purchase orders are those in an in-flight PO_STATUS state (not received,
 not cancelled). List them with supplier, destination warehouse, and expected
@@ -5726,7 +5726,7 @@ ORDER BY ro.repl_id, p.sku;
 
 ---
 
-### Recipe 7 — Return rate by reason
+### Recipe: Return rate by reason
 
 Return rate here is the count of returns per reason as a share of all returns.
 `reason_code` decodes via RETURN_REASON. To label the reasons in the output you
@@ -5744,12 +5744,12 @@ ORDER BY return_count DESC;
 ```
 
 For a return rate against orders — returns divided by shipped/fulfilled orders —
-see Recipe 15, and remember to exclude internal-test orders from the
-denominator.
+see the *Return rate against fulfilled orders* recipe, and remember to exclude
+internal-test orders from the denominator.
 
 ---
 
-### Recipe 8 — Top products by units shipped
+### Recipe: Top products by units shipped
 
 Units shipped live on `shipment_items.quantity`, keyed by `sku`. Join through
 `products` to attach the name (a plain `sku`-to-`sku` join here, because both
@@ -5775,7 +5775,7 @@ conversion is needed on this side of the model.
 
 ---
 
-### Recipe 9 — Exception rate by carrier
+### Recipe: Exception rate by carrier
 
 Share of a carrier's shipments that had at least one delivery exception. Count
 shipments once (a shipment can have several exceptions), so use
@@ -5798,7 +5798,7 @@ ORDER BY exception_pct DESC;
 
 ---
 
-### Recipe 10 — Open delivery exceptions aging report
+### Recipe: Open delivery exceptions aging report
 
 Open exceptions have a NULL `resolved_ts`. Age them against today using
 `julianday` on the timestamps.
@@ -5817,7 +5817,7 @@ ORDER BY days_open DESC;
 
 ---
 
-### Recipe 11 — Average delivery transit time by service level
+### Recipe: Average delivery transit time by service level
 
 Days from ship to delivery, only for delivered shipments with both dates present,
 grouped by the carrier service level.
@@ -5837,7 +5837,7 @@ ORDER BY avg_transit_days;
 
 ---
 
-### Recipe 12 — Days late for late shipments
+### Recipe: Days late for late shipments
 
 For shipments delivered after their promise, how many days late, worst first.
 
@@ -5857,7 +5857,7 @@ ORDER BY days_late DESC;
 
 ---
 
-### Recipe 13 — Cycle-count accuracy by warehouse
+### Recipe: Cycle-count accuracy by warehouse
 
 Cycle counts store `variance = counted_qty - system_qty`. Accuracy is the share
 of reconciled counts with zero variance. `status_code` decodes via
@@ -5878,7 +5878,7 @@ ORDER BY accuracy_pct;
 
 ---
 
-### Recipe 14 — Inventory movement ledger for one product
+### Recipe: Inventory movement ledger for one product
 
 `inventory_transactions` is the signed movement ledger. Net change and current
 posture for one product across warehouses. `txn_type_code` decodes via
@@ -5901,7 +5901,7 @@ To start from a SKU instead of an item code, convert:
 
 ---
 
-### Recipe 15 — Return rate against fulfilled orders
+### Recipe: Return rate against fulfilled orders
 
 Returns as a share of fulfilled orders, excluding internal-test orders from the
 denominator. Count distinct orders that generated at least one return.
@@ -5923,7 +5923,7 @@ JOIN reportable_orders ro ON ro.order_id = r.order_id;
 
 ---
 
-### Recipe 16 — Revenue by customer segment
+### Recipe: Revenue by customer segment
 
 Line revenue rolled up by the ordering customer's segment. `segment_code`
 decodes via CUSTOMER_SEGMENT. Internal-test and cancelled orders excluded.
@@ -5943,7 +5943,7 @@ ORDER BY revenue_usd DESC;
 
 ---
 
-### Recipe 17 — Supplier fill rate on received POs
+### Recipe: Supplier fill rate on received POs
 
 For received POs, how much of what was ordered actually arrived, by supplier.
 Aggregate the lines first so multiple lines per PO do not distort the header.
@@ -5967,7 +5967,7 @@ zero.
 
 ---
 
-### Recipe 18 — Products that are below reorder point AND have a preferred supplier
+### Recipe: Products that are below reorder point AND have a preferred supplier
 
 Combines inventory shortfall (item_code side) with the supplier catalog
 (also item_code side), bridged through `products` for readable output.
@@ -5995,7 +5995,7 @@ on `item_code`; `products` bridges only for the display SKU and name.
 
 ---
 
-### Recipe 19 — Order-to-ship cycle time
+### Recipe: Order-to-ship cycle time
 
 Days from order date to first ship date, for reportable orders that shipped. Use
 the earliest ship date per order (an order can have more than one shipment).
@@ -6015,7 +6015,7 @@ ORDER BY days_to_ship DESC;
 
 ---
 
-### Recipe 20 — Multi-leg shipments and their facility path
+### Recipe: Multi-leg shipments and their facility path
 
 Shipments with more than one leg, listing the ordered leg path. `mode_code`
 decodes via TRANSPORT_MODE; leg `status` via LEG_STATUS.
@@ -6039,7 +6039,7 @@ ORDER BY s.shipment_id, lg.leg_seq;
 
 ---
 
-### Recipe 21 — Carrier invoice payment status summary
+### Recipe: Carrier invoice payment status summary
 
 Outstanding versus paid carrier spend. `status_code` decodes via INVOICE_STATUS.
 
@@ -6056,7 +6056,7 @@ ORDER BY c.name, ci.status_code;
 
 ---
 
-### Recipe 22 — Stock transfers in transit between warehouses
+### Recipe: Stock transfers in transit between warehouses
 
 Transfers that have shipped but not yet been received. `status_code` decodes via
 TRANSFER_STATUS.
@@ -6079,7 +6079,7 @@ ORDER BY units_in_transit DESC;
 
 ---
 
-### Recipe 23 — Products never shipped (in the reportable order stream)
+### Recipe: Products never shipped (in the reportable order stream)
 
 A left-anti pattern: active products with no shipped units in reportable orders.
 
@@ -6100,7 +6100,7 @@ ORDER BY p.sku;
 
 ---
 
-### Recipe 24 — Inventory on hand valued at latest supplier cost
+### Recipe: Inventory on hand valued at latest supplier cost
 
 Value on-hand stock using the preferred supplier's `unit_cost`. Since a product
 may have more than one supplier row, restrict to the preferred one.

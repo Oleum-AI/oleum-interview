@@ -1,11 +1,9 @@
-"""Part 2 data generator.
+"""Data generator.
 
 Builds a mid-size 3PL / omnichannel logistics database (46 tables, 3 domains)
-into part2.db. Deterministic (seed 42). Reuses Part 1's name/brand/category/city
-pools and the SKU/price conventions so Part 2 reads like the same company scaled
-up. Coded columns are unmarked in the schema; their meaning lives in the guidance
-docs. See interviewer/SPEC.md for the canonical spec and interviewer/GOTCHAS.md
-for the planted traps.
+into data.db. Deterministic (seed 42). Coded columns are unmarked in the schema;
+their meaning lives in the guidance docs. See interviewer/SPEC.md for the
+canonical spec and interviewer/GOTCHAS.md for the planted traps.
 """
 import os
 import random
@@ -16,8 +14,8 @@ SEED = 42
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-DB_PATH = os.environ.get("DB_PATH", os.path.join(ROOT, "part2.db"))
-SCHEMA = os.path.join(HERE, "part2_schema.sql")
+DB_PATH = os.environ.get("DB_PATH", os.path.join(ROOT, "data.db"))
+SCHEMA = os.path.join(HERE, "schema.sql")
 
 TODAY = date(2024, 12, 31)
 ORDER_START = date(2023, 1, 1)
@@ -801,7 +799,7 @@ def _write(rows):
 
 def _summary(rows):
     total = sum(len(v) for v in rows.values())
-    print(f"part2.db built: {len(rows)} tables, {total:,} rows")
+    print(f"data.db built: {len(rows)} tables, {total:,} rows")
 
 
 if __name__ == "__main__":

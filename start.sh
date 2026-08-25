@@ -1,6 +1,6 @@
 # !/usr/bin/env bash
-# ./start-part2.sh ["your question here"]   (no question -> prompts you)
-# Builds the Part 2 database and points the agent at it via DB_PATH.
+# ./start.sh ["your question here"]   (no question -> prompts you)
+# Builds the database and points the agent at it via DB_PATH.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -20,10 +20,10 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-export DB_PATH="$PWD/part2.db"
+export DB_PATH="$PWD/data.db"
 
-if [ ! -f part2.db ]; then
-    python database/build_part2.py
+if [ ! -f data.db ]; then
+    python database/build.py
 fi
 
 python main.py "$@"

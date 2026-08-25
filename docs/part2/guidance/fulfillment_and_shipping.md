@@ -8,15 +8,15 @@ process that runs after delivery. It also covers the carrier and service referen
 data that shipments hang off, and it points at the freight-billing tables at a
 topical level.
 
-Read `04_reference_keys_codes_and_conventions.md` first for the company and the three-domain map. This
+Read `reference.md` first for the company and the three-domain map. This
 document assumes you know that the order is the spine of the warehouse, that a
 shipment ships *from* a warehouse, and that products are referenced by two
 different identifier vocabularies depending on which side of the business you are
 standing on. Every coded column named below is decoded in exactly one place —
-`04_reference_keys_codes_and_conventions.md` — and this document only ever names the code set and uses
+`reference.md` — and this document only ever names the code set and uses
 its symbolic labels.
 
-Coded columns (`status`, `*_code`) are decoded via the **Code Dictionary** in `04_reference_keys_codes_and_conventions.md`; this guide names the code set each column uses, and that dictionary gives the integer values.
+Coded columns (`status`, `*_code`) are decoded via the **Code Dictionary** in `reference.md`; this guide names the code set each column uses, and that dictionary gives the integer values.
 
 **SQL convention used in this document.** Because the integer code values live only
 in the **Code Dictionary**, the worked queries never hard-code them. Where a query *filters* on a coded
@@ -36,7 +36,7 @@ A short orientation before the details:
   the order inside a distribution center. Picks reference product by `item_code`;
   shipment contents reference product by `sku`. Keeping those two straight is the
   single most common source of a zero-row join in this domain (see
-  `04_reference_keys_codes_and_conventions.md`).
+  `reference.md`).
 - The **return** is the reverse flow that runs after delivery. It has its own
   status vocabulary, its own reason and disposition vocabularies, and its own
   item-condition vocabulary.
@@ -51,7 +51,10 @@ finally carrier invoices.
 
 ## Carriers and carrier services
 
-### `carriers`
+### Table: carriers
+
+- **Columns:** carrier_id, name, scac, country, is_active
+- **Joined by:** PK `carrier_id` (← `shipments.carrier_id`, `carrier_services.carrier_id`, `carrier_invoices.carrier_id`)
 
 `carriers` is the master list of the transportation companies we tender freight
 to. Columns:
@@ -70,7 +73,10 @@ to. Columns:
   invoices. Filter on `is_active` only when the question is about the *current*
   roster of usable carriers, not about historical shipment volume.
 
-### `carrier_services`
+### Table: carrier_services
+
+- **Columns:** service_id, carrier_id, service_level_code, name, transit_days_est
+- **Joined by:** PK `service_id` (← `shipments.service_id`); FK `carrier_id` → `carriers.carrier_id`
 
 A carrier does not sell "a shipment." It sells named *services*, each at a
 particular speed class. `carrier_services` holds one row per service a carrier
@@ -99,7 +105,7 @@ a given shipment actually met its promise is measured on the shipment itself
 about *actual* performance. Keeping "estimated transit" (a property of the service)
 separate from "was it late" (a property of the shipment) is important; they answer
 different questions and the canonical definitions live in
-`04_reference_keys_codes_and_conventions.md`.
+`reference.md`.
 
 Because `service_level_code` lives on `carrier_services` and not on `shipments`,
 any shipment-level question sliced by service level must join through
@@ -109,13 +115,13 @@ any shipment-level question sliced by service level must join through
 
 Group a carrier's services by service level and show the average quoted transit.
 `service_level_code` is grouped and decoded to its SERVICE_LEVEL label at
-presentation via `04_reference_keys_codes_and_conventions.md`.
+presentation via `reference.md`.
 
 ```sql
 -- Services offered by each carrier, with quoted transit, ordered by speed class.
 SELECT c.name              AS carrier_name,
        c.scac,
-       cs.service_level_code,       -- decode via SERVICE_LEVEL in 04_reference_keys_codes_and_conventions.md
+       cs.service_level_code,       -- decode via SERVICE_LEVEL in reference.md
        COUNT(*)            AS services_at_level,
        AVG(cs.transit_days_est) AS avg_quoted_transit_days
 FROM carrier_services cs
@@ -158,17 +164,20 @@ because the promise (`shipments.promised_date`) and the service quote
 (`transit_days_est`) are set independently. Keep the three concepts distinct —
 quoted transit (service reference), actual transit (measured on the shipment), and
 on-time (actual delivery vs the promise). The canonical framing is in
-`04_reference_keys_codes_and_conventions.md`.
+`reference.md`.
 
 ---
 
 ## Facilities and route lanes
 
-### `facilities`
+### Table: facilities
+
+- **Columns:** facility_id, code, name, facility_type_code, city, state, country
+- **Joined by:** PK `facility_id` (← `shipment_legs.from_facility_id`, `shipment_legs.to_facility_id`, `tracking_events.facility_id`, `route_lanes.origin_facility_id`, `route_lanes.dest_facility_id`)
 
 `facilities` are the nodes in the *transportation* network — the places freight
 moves *between*. This is a distinct concept from a warehouse. A **warehouse**
-(`warehouses`, covered in `03_warehouse_and_inventory.md`) holds inventory and is
+(`warehouses`, covered in `warehouse_and_inventory.md`) holds inventory and is
 where a shipment *originates* (`shipments.origin_warehouse_id`). A **facility** is a
 routing node that a shipment *leg* travels from and to. Do not join a shipment's
 `origin_warehouse_id` to `facilities`; they are different tables with different
@@ -193,7 +202,10 @@ sortation without storage, clears international movement through a **port**, and
 handed to the customer from a **last_mile_depot**. A single shipment's legs will
 often walk up and down this hierarchy.
 
-### `route_lanes`
+### Table: route_lanes
+
+- **Columns:** lane_id, origin_facility_id, dest_facility_id, mode_code, distance_km, standard_transit_days
+- **Joined by:** PK `lane_id`; FK `origin_facility_id` → `facilities.facility_id`, `dest_facility_id` → `facilities.facility_id`
 
 `route_lanes` is the reference table of standard origin→destination routes the
 network runs on. Think of a lane as "the standard way we move freight from
@@ -279,12 +291,15 @@ carry the `shipment_id` through the CTE and `COUNT(DISTINCT shipment_id)`.
 
 ---
 
-## Shipments
+## Table: shipments
+
+- **Columns:** shipment_id, order_id, carrier_id, service_id, origin_warehouse_id, status, ship_date, delivered_date, promised_date, tracking_number, weight_kg
+- **Joined by:** PK `shipment_id` (← `packages.shipment_id`, `shipment_items.shipment_id`, `shipment_legs.shipment_id`, `tracking_events.shipment_id`, `delivery_exceptions.shipment_id`); FK `order_id` → `orders.order_id`, `carrier_id` → `carriers.carrier_id`, `service_id` → `carrier_services.service_id`, `origin_warehouse_id` → `warehouses.warehouse_id`
 
 `shipments` is the operational hub of this domain. One row is one shipment
 fulfilling an order. A fulfilled order (order `status` in the **ORDER_STATUS** code
 set at the fulfilled label) has one or more shipments; a cancelled or draft order
-has none (see `04_reference_keys_codes_and_conventions.md`). One order can have several shipments
+has none (see `reference.md`). One order can have several shipments
 — split shipments are normal in a 3PL — so **never assume one shipment per order**.
 
 Columns:
@@ -293,19 +308,19 @@ Columns:
 - `order_id` — the order this shipment fulfills, pointing at `orders`. This is the
   join back into the order-management domain. Because an order can fan out to
   multiple shipments, joining `orders` to `shipments` multiplies order rows; see
-  the fan-out warning below and in `04_reference_keys_codes_and_conventions.md`.
+  the fan-out warning below and in `reference.md`.
 - `carrier_id` — the carrier moving the shipment, pointing at `carriers`.
 - `service_id` — the carrier service chosen, pointing at `carrier_services`. This
   is your path to the service level (`carrier_services.service_level_code`,
   **SERVICE_LEVEL**).
 - `origin_warehouse_id` — the warehouse the shipment ships *from*, pointing at
-  `warehouses` (the inventory domain — see `03_warehouse_and_inventory.md`). This
+  `warehouses` (the inventory domain — see `warehouse_and_inventory.md`). This
   is **not** a facility.
 - `status` — the shipment's lifecycle state, from the **SHIP_STATUS** code set
   (labels: label_created, picked_up, in_transit, out_for_delivery, delivered,
   exception, lost). The delivered label is the terminal "successfully delivered"
   state for a shipment. See the on-time definition below and the state machine in
-  `04_reference_keys_codes_and_conventions.md`.
+  `reference.md`.
 - `ship_date` — the date the shipment left the origin (a `YYYY-MM-DD` date).
 - `delivered_date` — the date it was delivered, **NULL until delivered**. This is a
   lifecycle NULL: a shipment that has not been delivered has no delivered date. Any
@@ -318,7 +333,7 @@ Columns:
 ### The on-time / late definition (authoritative operational rule)
 
 This is the single most important semantic in the domain and it must be stated
-precisely. Reference `04_reference_keys_codes_and_conventions.md` for the canonical metric; the
+precisely. Reference `reference.md` for the canonical metric; the
 operational rule is:
 
 1. A shipment is **delivered** when its `status` (the **SHIP_STATUS** code set) is
@@ -350,7 +365,7 @@ choice.
 ### Worked example — on-time delivery rate
 
 Compute the on-time rate over delivered shipments. Bind the SHIP_STATUS delivered
-value from `04_reference_keys_codes_and_conventions.md` for the filter.
+value from `reference.md` for the filter.
 
 ```sql
 -- On-time delivery rate: among DELIVERED shipments, share delivered on/before promise.
@@ -419,7 +434,7 @@ GROUP BY s.status
 ORDER BY shipment_count DESC;
 ```
 
-Read this together with `04_reference_keys_codes_and_conventions.md`, which lays out the legal
+Read this together with `reference.md`, which lays out the legal
 transitions between these states and confirms that the delivered and lost labels
 are terminal.
 
@@ -466,7 +481,7 @@ and then aggregating an order-level amount (say `orders.order_total`) will
 double-count that amount once per shipment. If you need shipment counts per order,
 aggregate; if you need order-level money, aggregate the shipments first or compute
 the order amount independently. The general treatment of fan-out is in
-`04_reference_keys_codes_and_conventions.md`; it recurs at every one-to-many boundary in this
+`reference.md`; it recurs at every one-to-many boundary in this
 domain (order→shipment, shipment→package, shipment→item, shipment→leg,
 shipment→tracking event, shipment→exception).
 
@@ -478,7 +493,7 @@ from all reporting (they carry no data signal and are not real customer demand).
 Because shipments join back to orders, any customer-facing fulfillment metric —
 on-time rate, volume, carrier spend attribution — should filter those orders out by
 joining to `orders` and dropping the internal/test priority. The full rule, and the
-list of what else to exclude, lives in `04_reference_keys_codes_and_conventions.md`; it is
+list of what else to exclude, lives in `reference.md`; it is
 called out here so that shipment-level rollups do not silently include test
 traffic. The pattern is a simple `JOIN orders o ON o.order_id = s.order_id` plus a
 `WHERE o.priority_code <> :order_priority_internal_test`, binding the ORDER_PRIORITY
@@ -486,7 +501,10 @@ internal/test value from the **Code Dictionary**.
 
 ---
 
-## Packages
+## Table: packages
+
+- **Columns:** package_id, shipment_id, packaging_type_code, weight_kg, length_cm, width_cm, height_cm
+- **Joined by:** PK `package_id` (← `shipment_items.package_id`); FK `shipment_id` → `shipments.shipment_id`
 
 A shipment is packed into one or more **packages**. `packages` holds the physical
 parcels:
@@ -532,7 +550,10 @@ ORDER BY package_count DESC;
 
 ---
 
-## Shipment items
+## Table: shipment_items
+
+- **Columns:** shipment_item_id, shipment_id, package_id, order_line_id, sku, quantity
+- **Joined by:** PK `shipment_item_id`; FK `shipment_id` → `shipments.shipment_id`, `package_id` → `packages.package_id`, `order_line_id` → `order_lines.order_line_id`; `sku` (TEXT) → `products.sku` (order-side vocabulary — never joins to inventory-side `item_code`)
 
 `shipment_items` records what was actually shipped, at the line level, and it is
 the bridge from a shipment back to the order lines that were fulfilled. Columns:
@@ -559,7 +580,7 @@ directly — `shipment_items.sku = pick_lines.item_code` returns zero rows witho
 error, because a text value never equals an integer. To relate shipped units to
 picked units for the same product you must bridge through `products`
 (`products.sku` ⇄ `products.product_id = item_code`). The full mechanics are in
-`04_reference_keys_codes_and_conventions.md`; this is the same two-vocabulary rule that pervades the
+`reference.md`; this is the same two-vocabulary rule that pervades the
 warehouse.
 
 ### Fan-out — the double-counting warning
@@ -577,7 +598,7 @@ Concretely:
 - Summing `shipment_items.quantity` is the correct way to get "units shipped," and
   it is *not* double-counted, because quantity lives at the item grain.
 
-Reference `04_reference_keys_codes_and_conventions.md` for the general fan-out treatment. The
+Reference `reference.md` for the general fan-out treatment. The
 rule of thumb: sum a measure only at its own grain, and use `COUNT(DISTINCT ...)`
 or a pre-aggregated subquery when you need a parent-level count or amount across a
 one-to-many join.
@@ -613,7 +634,10 @@ distorting the ordered quantity.
 
 ---
 
-## Shipment legs
+## Table: shipment_legs
+
+- **Columns:** leg_id, shipment_id, leg_seq, mode_code, from_facility_id, to_facility_id, status, departed_ts, arrived_ts
+- **Joined by:** PK `leg_id`; FK `shipment_id` → `shipments.shipment_id`, `from_facility_id` → `facilities.facility_id`, `to_facility_id` → `facilities.facility_id`
 
 A shipment's physical journey is decomposed into ordered **legs**. `shipment_legs`
 holds one row per leg:
@@ -633,7 +657,7 @@ holds one row per leg:
   completed label — this is a different value in a different code set than the
   shipment's delivered state (SHIP_STATUS) or a pick's completed state
   (PICK_STATUS).** Never carry a status decode across tables; see
-  `04_reference_keys_codes_and_conventions.md` and rule G2 in the overview.
+  `reference.md` and rule G2 in the overview.
 - `departed_ts` — the timestamp the leg departed its origin (ISO-8601).
 - `arrived_ts` — the timestamp the leg arrived at its destination, **NULL until the
   leg completes**. A leg in progress has a `departed_ts` but a NULL `arrived_ts`.
@@ -690,7 +714,10 @@ ORDER BY b.shipment_id;
 
 ---
 
-## Tracking events
+## Table: tracking_events
+
+- **Columns:** event_id, shipment_id, event_code, event_ts, facility_id, message
+- **Joined by:** PK `event_id`; FK `shipment_id` → `shipments.shipment_id`, `facility_id` → `facilities.facility_id` (nullable)
 
 `tracking_events` is an **append-only event stream**: one row per tracking scan or
 milestone on a shipment, in the order it happened. It is the closest thing to a
@@ -817,7 +844,10 @@ subquery when you need exactly one delivery time per shipment.
 
 ---
 
-## Delivery exceptions
+## Table: delivery_exceptions
+
+- **Columns:** exception_id, shipment_id, exception_type_code, reported_ts, resolved_ts, note
+- **Joined by:** PK `exception_id`; FK `shipment_id` → `shipments.shipment_id`
 
 `delivery_exceptions` records problems reported against a shipment during its
 journey. Columns:
@@ -887,11 +917,14 @@ That work is a **pick task**, decomposed into **pick lines**. Picking happens on
 the inventory side of the house, which is why it uses the inventory-side product
 vocabulary (`item_code`), not the order-side one (`sku`).
 
-### `pick_tasks`
+### Table: pick_tasks
+
+- **Columns:** pick_id, warehouse_id, order_id, status_code, created_ts, completed_ts
+- **Joined by:** PK `pick_id` (← `pick_lines.pick_id`); FK `warehouse_id` → `warehouses.warehouse_id`, `order_id` → `orders.order_id`
 
 - `pick_id` — primary key.
 - `warehouse_id` — the warehouse doing the picking, pointing at `warehouses` (the
-  inventory domain — see `03_warehouse_and_inventory.md`).
+  inventory domain — see `warehouse_and_inventory.md`).
 - `order_id` — the order being assembled, pointing at `orders`. This is the link
   back to demand.
 - `status_code` — the pick's state, from the **PICK_STATUS** code set (labels:
@@ -903,7 +936,10 @@ vocabulary (`item_code`), not the order-side one (`sku`).
 - `created_ts` — when the pick task was created (ISO-8601).
 - `completed_ts` — when it finished, **NULL until the pick completes**.
 
-### `pick_lines`
+### Table: pick_lines
+
+- **Columns:** pick_line_id, pick_id, item_code, bin_id, quantity
+- **Joined by:** PK `pick_line_id`; FK `pick_id` → `pick_tasks.pick_id`, `bin_id` → `bins.bin_id` (nullable); `item_code` (INTEGER) → `products.product_id` (inventory-side vocabulary — never joins to order-side `sku`)
 
 - `pick_line_id` — primary key.
 - `pick_id` — the pick task this line belongs to.
@@ -923,7 +959,7 @@ was picked to what was shipped for the same product, bridge through `products`:
 `pick_lines.item_code = products.product_id` and `products.sku =
 shipment_items.sku`. A direct `pick_lines.item_code = shipment_items.sku`
 comparison returns zero rows without error. Full treatment in
-`04_reference_keys_codes_and_conventions.md`.
+`reference.md`.
 
 ### Worked example — pick throughput and short picks by warehouse
 
@@ -1003,7 +1039,10 @@ there are multiple picks, and it reads as the business rule states it.
 The reverse flow. After delivery a customer may send goods back; that is a
 **return**, identified by an RMA, decomposed into **return lines**.
 
-### `returns`
+### Table: returns
+
+- **Columns:** return_id, order_id, rma_number, reason_code, status, disposition_code, requested_date, received_date
+- **Joined by:** PK `return_id` (← `return_lines.return_id`); FK `order_id` → `orders.order_id`
 
 - `return_id` — primary key.
 - `order_id` — the order the return is against, pointing at `orders`.
@@ -1019,7 +1058,7 @@ The reverse flow. After delivery a customer may send goods back; that is a
   not the shipment delivered, leg completed, or pick completed values.** Note also
   that this is the `returns.status` column, which is the RETURN_STATUS set — do not
   confuse it with `orders.status` (ORDER_STATUS), whose *returned* label is a
-  different thing at the order level. See `04_reference_keys_codes_and_conventions.md`.
+  different thing at the order level. See `reference.md`.
 - `disposition_code` — what we decided to do with the returned goods, from the
   **RETURN_DISPOSITION** code set (labels: restock, refurbish, scrap,
   return_to_supplier). **Nullable**: disposition is NULL until it has been decided,
@@ -1032,9 +1071,12 @@ The two-timestamp / two-status structure lets you distinguish the phases: a retu
 can be requested and authorized but not yet physically back (`received_date` NULL,
 `disposition_code` NULL), or received and dispositioned. The RETURN_STATUS *refunded*
 label indicates the financial resolution; the money detail is out of scope here and
-lives in `04_reference_keys_codes_and_conventions.md`.
+lives in `reference.md`.
 
-### `return_lines`
+### Table: return_lines
+
+- **Columns:** return_line_id, return_id, sku, quantity, condition_code
+- **Joined by:** PK `return_line_id`; FK `return_id` → `returns.return_id`; `sku` (TEXT) → `products.sku` (order-side vocabulary)
 
 - `return_line_id` — primary key.
 - `return_id` — the return this line belongs to.
@@ -1113,12 +1155,15 @@ whole point of the two-vocabulary rule.
 
 ---
 
-## Carrier invoices (topical)
+## Table: carrier_invoices
+
+- **Columns:** carrier_invoice_id, carrier_id, invoice_number, amount, status_code, invoice_date, due_date, paid_date
+- **Joined by:** PK `carrier_invoice_id`; FK `carrier_id` → `carriers.carrier_id`
 
 `carrier_invoices` records what carriers bill us for freight. It sits in this
 domain because it is carrier-facing, but the *money mechanics* — how to sum spend,
 reconcile invoices, and treat statuses financially — live in
-`04_reference_keys_codes_and_conventions.md`. Here we cover only the shape and its status
+`reference.md`. Here we cover only the shape and its status
 vocabulary.
 
 Columns:
@@ -1143,12 +1188,12 @@ invoice references a carrier, not a specific shipment). There is no foreign key
 from an invoice to a shipment in this schema, so you cannot attribute a carrier
 invoice to an individual shipment through a stored key. Freight cost analysis is
 therefore done at the carrier (and period) level, or by allocation logic defined in
-`04_reference_keys_codes_and_conventions.md` — do not invent a shipment↔invoice join that the
+`reference.md` — do not invent a shipment↔invoice join that the
 schema does not provide.
 
 ### Worked example — outstanding carrier invoices as of TODAY
 
-A topical example only; see `04_reference_keys_codes_and_conventions.md` for the full billing
+A topical example only; see `reference.md` for the full billing
 treatment. Unpaid is expressed by the `paid_date IS NULL` lifecycle NULL rather
 than a status filter; `status_code` is decoded to its INVOICE_STATUS label at
 presentation via the **Code Dictionary**.
@@ -1226,7 +1271,7 @@ SHIP_STATUS delivered label first, then compare `delivered_date` to
 
 ## Quick reference — code sets used in this domain
 
-Every coded column below is decoded (integer → label) in `04_reference_keys_codes_and_conventions.md`.
+Every coded column below is decoded (integer → label) in `reference.md`.
 This document only names the set and uses labels.
 
 - `carrier_services.service_level_code` → **SERVICE_LEVEL** (ground, two_day,
@@ -1270,7 +1315,7 @@ This document only names the set and uses labels.
   `products.product_id` directly.
 - **The two never join directly.** `shipment_items.sku = pick_lines.item_code`
   returns zero rows with no error. Bridge through `products`. Full mechanics:
-  `04_reference_keys_codes_and_conventions.md`.
+  `reference.md`.
 
 ## Quick reference — the NULL lifecycle signals in this domain
 
@@ -1289,8 +1334,8 @@ Because these NULLs are meaningful, always test them with `IS NULL` / `IS NOT
 NULL`; inequality and `<>` comparisons silently drop NULL rows and will
 misclassify undelivered, open, or unpaid records. For the canonical metric
 definitions that build on these rules — on-time delivery rate, days-to-deliver,
-fill/ship completeness — see `04_reference_keys_codes_and_conventions.md`; for the exclusion
+fill/ship completeness — see `reference.md`; for the exclusion
 rules (for example, internal/test orders that must be dropped from all reporting)
-and broader NULL guidance, see `04_reference_keys_codes_and_conventions.md`; and for the
-warehouse/inventory side of picks and stock, see `03_warehouse_and_inventory.md`.
+and broader NULL guidance, see `reference.md`; and for the
+warehouse/inventory side of picks and stock, see `warehouse_and_inventory.md`.
 ```

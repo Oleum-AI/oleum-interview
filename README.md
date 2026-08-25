@@ -10,7 +10,7 @@ Your task is described in **`docs/PART_2.md`** — read that first.
 ```
 .
 ├── main.py                     # entry point — ask the agent questions
-├── start-part2.sh              # one-step setup + run
+├── start.sh                    # one-step setup + run
 ├── docs/
 │   ├── PART_2.md               # your brief — start here
 │   └── part2/
@@ -23,8 +23,8 @@ Your task is described in **`docs/PART_2.md`** — read that first.
 │       ├── system.py           #     the system prompt
 │       └── tools.py            #     the tool schemas (run_sql, submit_answer)
 └── database/                   # the data layer
-    ├── part2_schema.sql        #   the database schema (discoverable at runtime too)
-    ├── build_part2.py          #   generates part2.db from a fixed seed
+    ├── schema.sql              #   the database schema (discoverable at runtime too)
+    ├── build.py                #   generates data.db from a fixed seed
     └── connection.py           #   read-only connection + query runner
 ```
 
@@ -36,7 +36,7 @@ The agent starts with two tools: `run_sql` (run a query, see the rows) and
 The quickest path — one script sets up the venv, builds the data, and starts the agent:
 
 ```bash
-./start-part2.sh            # add your OPENAI_API_KEY to .env when prompted
+./start.sh                  # add your OPENAI_API_KEY to .env when prompted
 ```
 
 Or by hand from the project root:
@@ -45,11 +45,11 @@ Or by hand from the project root:
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env        # then add your OPENAI_API_KEY
-python database/build_part2.py   # creates part2.db from a fixed seed
-DB_PATH="$PWD/part2.db" python main.py
+python database/build.py    # creates data.db from a fixed seed
+DB_PATH="$PWD/data.db" python main.py
 ```
 
-`build_part2.py` builds the database deterministically (fixed seed), so everyone gets
+`build.py` builds the database deterministically (fixed seed), so everyone gets
 the same, internally-consistent data.
 
 ```bash

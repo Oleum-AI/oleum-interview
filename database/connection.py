@@ -2,7 +2,7 @@ import os
 import sqlite3
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_DB = os.path.join(ROOT, "part2.db")
+DEFAULT_DB = os.path.join(ROOT, "data.db")
 
 _conn = None
 
@@ -15,7 +15,7 @@ def get_conn():
     return _conn
 
 
-def run_sql(query: str, max_rows: int = 100) -> str:
+def run_sql(query: str, max_rows: int = 20) -> str:
     try:
         cur = get_conn().execute(query)
         if cur.description is None:

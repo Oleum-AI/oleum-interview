@@ -8,13 +8,13 @@ cards.
 
 Order Management is the transactional heart of the warehouse. Almost every
 question about revenue, demand, customer behaviour, or channel mix starts here
-and joins outward into Fulfillment (see `02_fulfillment_and_shipping.md`) and
-Warehouse & Inventory (see `03_warehouse_and_inventory.md`). Because those two
+and joins outward into Fulfillment (see `fulfillment_and_shipping.md`) and
+Warehouse & Inventory (see `warehouse_and_inventory.md`). Because those two
 downstream domains identify products by a *different* key than orders do, read
 the identifier notes in this document carefully and keep
-`04_reference_keys_codes_and_conventions.md` open alongside it.
+`reference.md` open alongside it.
 
-Coded columns (`status`, `*_code`) are decoded via the **Code Dictionary** in `04_reference_keys_codes_and_conventions.md`; this guide names the code set each column uses, and that dictionary gives the integer values.
+Coded columns (`status`, `*_code`) are decoded via the **Code Dictionary** in `reference.md`; this guide names the code set each column uses, and that dictionary gives the integer values.
 
 ## Tables in this domain
 
@@ -42,26 +42,29 @@ A few conventions keep the worked examples consistent and safe to copy:
   Order history runs from `2023-01-01` to TODAY; customers and gift cards can be
   older.
 - **Money is USD with two decimals.** All amount columns are stored as SQLite
-  `REAL`. Round only at presentation time. See `04_reference_keys_codes_and_conventions.md`.
+  `REAL`. Round only at presentation time. See `reference.md`.
 - **Coded columns hold integers whose meaning is a two-hop lookup.** A column
   such as `orders.status` points at a *code set* (here, the ORDER_STATUS code
   set); the integer-to-label mapping for every code set lives in
-  `04_reference_keys_codes_and_conventions.md`. This document names the code set and uses the
+  `reference.md`. This document names the code set and uses the
   human-readable label; it never prints the underlying integer next to the
   label. In the SQL examples, coded filters are written with a named parameter
   (for example `:fulfilled`) and a comment naming the code set and label — bind
-  the integer from `04_reference_keys_codes_and_conventions.md` when you run the query.
+  the integer from `reference.md` when you run the query.
 - **`status` / `status_code` means something different in every table.** The
   ORDER_STATUS set that decodes `orders.status` does not decode
   `shipments.status`, `returns.status`, `payments.status_code`, or any other
   `status`-family column. Never carry a decode from one table to another. See
-  `04_reference_keys_codes_and_conventions.md`.
+  `reference.md`.
 - **Boolean flags (`is_active`, `is_default`, `is_preferred`) are plain 0/1
   columns**, not code sets, and are filtered directly (`is_active = 1`).
 
 ---
 
-## Customers
+## Table: customers
+
+- **Columns:** customer_id, first_name, last_name, email, phone, segment_code, signup_date, is_active
+- **Joined by:** PK `customer_id` (← `orders.customer_id`, `customer_addresses.customer_id`, `gift_cards.customer_id`)
 
 `customers` is the party master for people and organizations that place orders.
 
@@ -78,7 +81,7 @@ A few conventions keep the worked examples consistent and safe to copy:
 ### Customer segments
 
 `segment_code` decodes against the **CUSTOMER_SEGMENT** code set (values in
-`04_reference_keys_codes_and_conventions.md`). The segments, from most to least common, are:
+`reference.md`). The segments, from most to least common, are:
 
 - **consumer** — individual retail shoppers. The large majority of accounts.
 - **small_business** — small commercial buyers.
@@ -91,7 +94,7 @@ Segment is a property of the *customer*, not of the order. If you need
 
 ```sql
 -- Active customers by segment
-SELECT segment_code,          -- CUSTOMER_SEGMENT; label via 04_reference_keys_codes_and_conventions.md
+SELECT segment_code,          -- CUSTOMER_SEGMENT; label via reference.md
        COUNT(*) AS customers
 FROM customers
 WHERE is_active = 1
@@ -127,13 +130,13 @@ order side of the join:
 
 ```sql
 -- Average order value and revenue by customer segment (reporting-eligible orders)
-SELECT c.segment_code,                 -- CUSTOMER_SEGMENT; label via 04_reference_keys_codes_and_conventions.md
+SELECT c.segment_code,                 -- CUSTOMER_SEGMENT; label via reference.md
        COUNT(o.order_id)              AS orders,
        ROUND(SUM(o.order_total), 2)   AS gross_revenue,
        ROUND(AVG(o.order_total), 2)   AS avg_order_value
 FROM customers c
 JOIN orders o ON o.customer_id = c.customer_id
-WHERE o.priority_code <> :internal_test        -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE o.priority_code <> :internal_test        -- see the Exclusions section of reference.md
 GROUP BY c.segment_code
 ORDER BY gross_revenue DESC;
 ```
@@ -152,7 +155,10 @@ ORDER BY signup_year;
 
 ---
 
-## Customer addresses
+## Table: customer_addresses
+
+- **Columns:** address_id, customer_id, address_type_code, line1, city, state, postal_code, country, is_default
+- **Joined by:** PK `address_id` (← `orders.ship_to_address_id`); FK `customer_id` → `customers.customer_id`
 
 `customer_addresses` holds one or more postal addresses per customer. An order's
 `ship_to_address_id` points into this table.
@@ -179,8 +185,8 @@ guessing the default:
 SELECT a.state, COUNT(*) AS orders
 FROM orders o
 JOIN customer_addresses a ON a.address_id = o.ship_to_address_id
-WHERE o.status = :fulfilled            -- ORDER_STATUS 'fulfilled'; 04_reference_keys_codes_and_conventions.md
-  AND o.priority_code <> :internal_test -- exclude internal/QA; ORDER_PRIORITY, see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE o.status = :fulfilled            -- ORDER_STATUS 'fulfilled'; reference.md
+  AND o.priority_code <> :internal_test -- exclude internal/QA; ORDER_PRIORITY, see the Exclusions section of reference.md
 GROUP BY a.state
 ORDER BY orders DESC;
 ```
@@ -194,7 +200,7 @@ maintain billing vs shipping addresses:
 
 ```sql
 -- How customer addresses split by type, and how many are defaults
-SELECT address_type_code,              -- ADDRESS_TYPE; label via 04_reference_keys_codes_and_conventions.md
+SELECT address_type_code,              -- ADDRESS_TYPE; label via reference.md
        COUNT(*) AS addresses,
        SUM(is_default) AS defaults
 FROM customer_addresses
@@ -238,7 +244,10 @@ The catalog is four tables: `product_categories` (a hierarchy), `products` (the
 sellable master and the identifier bridge), `product_attributes` (name/value
 descriptors), and `price_history` (effective-dated list prices).
 
-### product_categories
+### Table: product_categories
+
+- **Columns:** category_id, name, parent_category_id
+- **Joined by:** PK `category_id` (← `products.category_id`); FK `parent_category_id` → `product_categories.category_id` (self-referencing)
 
 A self-referencing hierarchy of merchandising categories.
 
@@ -301,24 +310,27 @@ FROM order_lines ol
 JOIN products p            ON p.sku = ol.sku
 JOIN product_categories cat ON cat.category_id = p.category_id
 JOIN orders o              ON o.order_id = ol.order_id
-WHERE o.priority_code <> :internal_test        -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE o.priority_code <> :internal_test        -- see the Exclusions section of reference.md
 GROUP BY cat.name
 ORDER BY revenue DESC;
 ```
 
-### products
+### Table: products
+
+- **Columns:** product_id, sku, name, category_id, unit_price, weight_kg, is_active, launched_date
+- **Joined by:** PK `product_id` (= `item_code` on the inventory/supplier side — the SKU⇄item_code bridge); `sku` (← `order_lines.sku`, `return_lines.sku`, `shipment_items.sku`); FK `category_id` → `product_categories.category_id`
 
 The master record for every sellable item, and the single bridge between the two
 product-identifier vocabularies used across the warehouse.
 
 | Column | Meaning |
 |---|---|
-| `product_id` | Surrogate primary key. On the inventory/supplier/warehouse side this same integer is the **`item_code`** (see below and `04_reference_keys_codes_and_conventions.md`). |
+| `product_id` | Surrogate primary key. On the inventory/supplier/warehouse side this same integer is the **`item_code`** (see below and `reference.md`). |
 | `sku` | Business identifier, TEXT, formatted `SKU-00042`. On the order/returns/shipment side products are referenced by this `sku`. |
 | `name` | Display name (brand + noun). |
 | `category_id` | Leaf category, FK to `product_categories`. |
-| `unit_price` | Current list price in USD. Authoritative for the *current* price of the product (see `04_reference_keys_codes_and_conventions.md` for how this relates to `price_history`). |
-| `weight_kg` | Unit weight in kilograms. Used for shipment weight rollups in `02_fulfillment_and_shipping.md`. |
+| `unit_price` | Current list price in USD. Authoritative for the *current* price of the product (see `reference.md` for how this relates to `price_history`). |
+| `weight_kg` | Unit weight in kilograms. Used for shipment weight rollups in `fulfillment_and_shipping.md`. |
 | `is_active` | 1 if the product is currently sellable, 0 if discontinued. New orders draw only from active products, but historical order and inventory rows can reference inactive ones. |
 | `launched_date` | ISO date the product went live. Ranges 2019–2024. |
 
@@ -343,8 +355,8 @@ sku       = 'SKU-' || printf('%05d', item_code) -- 42          -> 'SKU-00042'
 Never join `order_lines.sku` directly to an inventory-side `item_code`: the
 types differ, the join matches nothing, and SQLite returns **zero rows with no
 error** — a silent wrong answer. Always bridge through `products`. This is the
-single most common cross-domain mistake; `04_reference_keys_codes_and_conventions.md` treats it
-in full and `04_reference_keys_codes_and_conventions.md` shows the correct patterns.
+single most common cross-domain mistake; `reference.md` treats it
+in full and `reference.md` shows the correct patterns.
 
 ```sql
 -- Catalog summary by activity flag
@@ -363,10 +375,13 @@ legitimately sold.
 
 `launched_date` (2019–2024) supports "products launched in period" and
 newness-based cuts; `weight_kg` is the per-unit weight that drives shipment
-weight rollups in `02_fulfillment_and_shipping.md`. Neither carries a code set —
+weight rollups in `fulfillment_and_shipping.md`. Neither carries a code set —
 they are plain values.
 
-### product_attributes
+### Table: product_attributes
+
+- **Columns:** attribute_id, product_id, attr_name, attr_value
+- **Joined by:** PK `attribute_id`; FK `product_id` → `products.product_id`
 
 A flexible name/value bag of descriptive attributes, one row per attribute per
 product.
@@ -418,7 +433,10 @@ GROUP BY p.sku, p.name;
 The LEFT JOIN keeps products that are missing a given attribute (the pivoted cell
 is NULL), which is the safe default when attribute coverage is uneven.
 
-### price_history
+### Table: price_history
+
+- **Columns:** price_history_id, product_id, effective_date, unit_price
+- **Joined by:** PK `price_history_id`; FK `product_id` → `products.product_id`
 
 An effective-dated log of list prices per product.
 
@@ -452,7 +470,7 @@ equal the current `products.unit_price` — for the *current* list price use
 price. Second, neither of these is the price the customer actually *paid*: the
 price on the order is captured on `order_lines.unit_price` at order time (see the
 next section). The full treatment of which price is authoritative for which
-purpose is in `04_reference_keys_codes_and_conventions.md`.
+purpose is in `reference.md`.
 
 Because a product can have as few as one price-history row, the "price on date X"
 subquery above can return no row for a product whose earliest effective date is
@@ -473,7 +491,10 @@ FROM products p;
 
 ---
 
-## Orders
+## Table: orders
+
+- **Columns:** order_id, customer_id, order_date, status, priority_code, channel_code, ship_to_address_id, promised_date, order_total
+- **Joined by:** PK `order_id` (← `order_lines`, `order_status_history`, `payments`, `order_promotions`, `shipments`, `returns`, `pick_tasks`, `gift_card_transactions`); FK `customer_id` → `customers.customer_id`, `ship_to_address_id` → `customer_addresses.address_id`
 
 `orders` is the order header — one row per order.
 
@@ -497,7 +518,7 @@ happy path runs draft → placed → confirmed → fulfilled; an order can inste
 cancelled, or move to returned after having been fulfilled. The **fulfilled**
 label is the terminal "successful" state and is the one most revenue and
 volume metrics filter to. Full state-machine notes, and the transition ledger,
-are in `04_reference_keys_codes_and_conventions.md`.
+are in `reference.md`.
 
 Remember rule G2: this ORDER_STATUS decode applies **only** to `orders.status`
 (and to `order_status_history.status`, which shares the set). It does not apply
@@ -507,10 +528,10 @@ thing anywhere else.
 
 ```sql
 -- Order counts by status (reporting-eligible orders only)
-SELECT status,                         -- ORDER_STATUS; label via 04_reference_keys_codes_and_conventions.md
+SELECT status,                         -- ORDER_STATUS; label via reference.md
        COUNT(*) AS orders
 FROM orders
-WHERE priority_code <> :internal_test  -- exclude internal/QA; ORDER_PRIORITY, see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE priority_code <> :internal_test  -- exclude internal/QA; ORDER_PRIORITY, see the Exclusions section of reference.md
 GROUP BY status
 ORDER BY orders DESC;
 ```
@@ -527,7 +548,7 @@ states. Two distinctions matter for counting:
   fulfilled and then came back (they have a shipment and a `returns` record).
   Neither should be counted as clean fulfilled demand. The relationship between
   order status and downstream shipments/returns is spelled out in
-  `04_reference_keys_codes_and_conventions.md`.
+  `reference.md`.
 
 A frequent reporting definition is "successfully fulfilled orders", which is the
 fulfilled state with the internal_test exclusion applied:
@@ -538,8 +559,8 @@ SELECT substr(order_date, 1, 7) AS ym,
        COUNT(*) AS fulfilled_orders,
        ROUND(SUM(order_total), 2) AS gross_value
 FROM orders
-WHERE status = :fulfilled              -- ORDER_STATUS 'fulfilled'; 04_reference_keys_codes_and_conventions.md
-  AND priority_code <> :internal_test  -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE status = :fulfilled              -- ORDER_STATUS 'fulfilled'; reference.md
+  AND priority_code <> :internal_test  -- see the Exclusions section of reference.md
 GROUP BY ym
 ORDER BY ym;
 ```
@@ -558,15 +579,15 @@ internal_test label, and they are deliberately indistinguishable from real order
 by any other field — normal customers, normal amounts, normal shipments — so the
 only safe way to remove them is to filter on `priority_code`. Treat the exclusion
 as a standing `WHERE priority_code <> :internal_test` on any orders-based report.
-This rule and its rationale are documented in `04_reference_keys_codes_and_conventions.md`;
-the ORDER_PRIORITY values are in `04_reference_keys_codes_and_conventions.md`.
+This rule and its rationale are documented in `reference.md`;
+the ORDER_PRIORITY values are in `reference.md`.
 
 ```sql
 -- Real order priority mix (internal_test removed)
-SELECT priority_code,                  -- ORDER_PRIORITY; label via 04_reference_keys_codes_and_conventions.md
+SELECT priority_code,                  -- ORDER_PRIORITY; label via reference.md
        COUNT(*) AS orders
 FROM orders
-WHERE priority_code <> :internal_test  -- drop internal/QA orders; see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE priority_code <> :internal_test  -- drop internal/QA orders; see the Exclusions section of reference.md
 GROUP BY priority_code
 ORDER BY orders DESC;
 ```
@@ -586,7 +607,7 @@ SELECT
   SUM(CASE WHEN priority_code =  :internal_test THEN 1 ELSE 0 END) AS test_orders,
   SUM(CASE WHEN priority_code <> :internal_test THEN 1 ELSE 0 END) AS real_orders,
   ROUND(100.0 * SUM(CASE WHEN priority_code = :internal_test THEN 1 ELSE 0 END)
-        / COUNT(*), 2) AS test_pct         -- ORDER_PRIORITY 'internal_test'; 04_reference_keys_codes_and_conventions.md
+        / COUNT(*), 2) AS test_pct         -- ORDER_PRIORITY 'internal_test'; reference.md
 FROM orders;
 ```
 
@@ -594,7 +615,7 @@ Downstream tables (shipments, payments, returns, pick tasks) inherit the same
 contamination through their `order_id`, so the exclusion has to be applied by
 joining back to `orders` and filtering `priority_code`, not by hoping the child
 table carries a flag — it does not. Every child-table example in this document
-and in `02_fulfillment_and_shipping.md` and `03_warehouse_and_inventory.md` therefore joins to `orders` to enforce it.
+and in `fulfillment_and_shipping.md` and `warehouse_and_inventory.md` therefore joins to `orders` to enforce it.
 
 ### Order channel
 
@@ -605,11 +626,11 @@ in_store are small. Channel is often crossed with segment or status:
 
 ```sql
 -- Channel mix among reporting-eligible orders
-SELECT channel_code,                   -- ORDER_CHANNEL; label via 04_reference_keys_codes_and_conventions.md
+SELECT channel_code,                   -- ORDER_CHANNEL; label via reference.md
        COUNT(*) AS orders,
        ROUND(SUM(order_total), 2) AS gross_total
 FROM orders
-WHERE priority_code <> :internal_test  -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE priority_code <> :internal_test  -- see the Exclusions section of reference.md
 GROUP BY channel_code
 ORDER BY orders DESC;
 ```
@@ -626,7 +647,7 @@ SELECT c.segment_code,                 -- CUSTOMER_SEGMENT
        ROUND(SUM(o.order_total), 2) AS gross_total
 FROM orders o
 JOIN customers c ON c.customer_id = o.customer_id
-WHERE o.priority_code <> :internal_test        -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE o.priority_code <> :internal_test        -- see the Exclusions section of reference.md
 GROUP BY c.segment_code, o.channel_code
 ORDER BY c.segment_code, orders DESC;
 ```
@@ -637,14 +658,14 @@ ORDER BY c.segment_code, orders DESC;
 `line_total` values** (each of which is already net of the line-level
 `discount_amount`). It does **not** subtract any `order_promotions` discount —
 order-level promotional discounts are recorded separately and are not netted out
-of `order_total`. See `04_reference_keys_codes_and_conventions.md` for the full composition of
+of `order_total`. See `reference.md` for the full composition of
 order value and how to compute a promotion-net figure.
 
 `promised_date` is the delivery commitment made to the customer at order time and
 is NULL on draft orders. It is the order header's own promise; note that a
 *shipment* carries its own `promised_date` for delivery-performance measurement,
 and the two are maintained independently — for on-time / late analysis use the
-shipment's dates (see `02_fulfillment_and_shipping.md`), not the order header's.
+shipment's dates (see `fulfillment_and_shipping.md`), not the order header's.
 
 `order_date` is the placement date and is the natural time axis for order-volume
 and revenue trends (monthly cuts with `substr(order_date, 1, 7)`, as above).
@@ -659,14 +680,17 @@ SELECT o.order_id, o.order_total,
        ROUND(SUM(ol.line_total), 2) AS lines_total
 FROM orders o
 JOIN order_lines ol ON ol.order_id = o.order_id
-WHERE o.priority_code <> :internal_test        -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE o.priority_code <> :internal_test        -- see the Exclusions section of reference.md
 GROUP BY o.order_id, o.order_total
 HAVING ROUND(o.order_total, 2) <> ROUND(SUM(ol.line_total), 2);
 ```
 
 ---
 
-## Order lines
+## Table: order_lines
+
+- **Columns:** order_line_id, order_id, sku, quantity, unit_price, discount_amount, line_total
+- **Joined by:** PK `order_line_id` (← `shipment_items.order_line_id`); FK `order_id` → `orders.order_id`; `sku` → `products.sku` (bridge to `item_code`)
 
 `order_lines` holds the individual line items of an order — one row per product
 per order.
@@ -687,7 +711,7 @@ supplier-side tables reference the same products by `item_code` (=
 through `products` (`order_lines.sku = products.sku`, then
 `products.product_id = <inventory-side>.item_code`). Joining `order_lines.sku`
 straight to `inventory.item_code` returns zero rows silently. See
-`04_reference_keys_codes_and_conventions.md`.
+`reference.md`.
 
 ```sql
 -- Top products by units ordered (reporting-eligible orders), joined via products
@@ -695,7 +719,7 @@ SELECT p.sku, p.name, SUM(ol.quantity) AS units
 FROM order_lines ol
 JOIN products p ON p.sku = ol.sku
 JOIN orders  o ON o.order_id = ol.order_id
-WHERE o.priority_code <> :internal_test     -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE o.priority_code <> :internal_test     -- see the Exclusions section of reference.md
 GROUP BY p.sku, p.name
 ORDER BY units DESC
 LIMIT 20;
@@ -704,7 +728,7 @@ LIMIT 20;
 `line_total` is the authoritative unit of revenue at line grain — always prefer
 summing `line_total` over recomputing `quantity * unit_price`, because it already
 reflects the line discount. Revenue and discount definitions are in
-`04_reference_keys_codes_and_conventions.md` and `04_reference_keys_codes_and_conventions.md`.
+`reference.md` and `reference.md`.
 
 Orders carry one or more lines (baskets of a few items are typical), so any
 line-level metric — units, basket size, per-line discount — must be aggregated
@@ -718,7 +742,7 @@ FROM (
     SELECT ol.order_id, COUNT(*) AS lines_per_order
     FROM order_lines ol
     JOIN orders o ON o.order_id = ol.order_id
-    WHERE o.priority_code <> :internal_test    -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+    WHERE o.priority_code <> :internal_test    -- see the Exclusions section of reference.md
     GROUP BY ol.order_id
 );
 ```
@@ -732,7 +756,10 @@ subquery first, then join, or sum `line_total` at the line grain and the header
 
 ---
 
-## Order status history
+## Table: order_status_history
+
+- **Columns:** history_id, order_id, status, changed_ts, note
+- **Joined by:** PK `history_id`; FK `order_id` → `orders.order_id`
 
 `order_status_history` is an append-only ledger of every status an order has
 passed through.
@@ -758,13 +785,13 @@ state, or when it reached fulfilled:
 -- When each order first reached the 'fulfilled' state
 SELECT order_id, MIN(changed_ts) AS fulfilled_ts
 FROM order_status_history
-WHERE status = :fulfilled              -- ORDER_STATUS 'fulfilled'; 04_reference_keys_codes_and_conventions.md
+WHERE status = :fulfilled              -- ORDER_STATUS 'fulfilled'; reference.md
 GROUP BY order_id;
 ```
 
 Because it shares the ORDER_STATUS code set with `orders.status`, the same
 labels apply — but only these two columns use that set. Time-in-state and cycle
-time analytics belong to `04_reference_keys_codes_and_conventions.md`.
+time analytics belong to `reference.md`.
 
 A common timing measure is order-to-fulfillment cycle time: the gap between the
 draft (creation) transition and the fulfilled transition. Pull both timestamps
@@ -778,10 +805,10 @@ FROM (SELECT order_id, MIN(changed_ts) AS created_ts
       FROM order_status_history GROUP BY order_id) h
 JOIN (SELECT order_id, MIN(changed_ts) AS fulfilled_ts
       FROM order_status_history
-      WHERE status = :fulfilled          -- ORDER_STATUS 'fulfilled'; 04_reference_keys_codes_and_conventions.md
+      WHERE status = :fulfilled          -- ORDER_STATUS 'fulfilled'; reference.md
       GROUP BY order_id) f ON f.order_id = h.order_id
 JOIN orders o ON o.order_id = h.order_id
-WHERE o.priority_code <> :internal_test; -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE o.priority_code <> :internal_test; -- see the Exclusions section of reference.md
 ```
 
 Use `MIN(changed_ts)` for the *first* time an order entered a state; an order
@@ -789,7 +816,10 @@ should reach fulfilled at most once, but taking the minimum is defensive.
 
 ---
 
-## Payments
+## Table: payments
+
+- **Columns:** payment_id, order_id, method_code, status_code, amount, paid_date
+- **Joined by:** PK `payment_id`; FK `order_id` → `orders.order_id`
 
 `payments` records the money movement associated with an order. Non-draft orders
 carry a payment; the payment amount equals the order total.
@@ -818,8 +848,8 @@ tracked in `gift_card_transactions`.
 **authorized**, **captured**, **refunded**, **voided**, and **failed**. The
 normal successful path is authorized then captured; **captured** means the money
 was collected. **refunded** payments correspond to returned orders (money given
-back — see Returns in `02_fulfillment_and_shipping.md` and refund handling in
-`04_reference_keys_codes_and_conventions.md`). **voided** and **failed** payments never
+back — see Returns in `fulfillment_and_shipping.md` and refund handling in
+`reference.md`). **voided** and **failed** payments never
 collected funds and carry no `paid_date`.
 
 Crucially, `payments.status_code` uses PAYMENT_STATUS, which is a *different code
@@ -828,13 +858,13 @@ unrelated to any `orders.status` value. Do not reuse an order-status decode here
 
 ```sql
 -- Captured payment amount by tender (reporting-eligible orders)
-SELECT p.method_code,                   -- PAYMENT_METHOD; label via 04_reference_keys_codes_and_conventions.md
+SELECT p.method_code,                   -- PAYMENT_METHOD; label via reference.md
        ROUND(SUM(p.amount), 2) AS captured_amount,
        COUNT(*) AS payments
 FROM payments p
 JOIN orders o ON o.order_id = p.order_id
-WHERE p.status_code = :captured         -- PAYMENT_STATUS 'captured'; 04_reference_keys_codes_and_conventions.md
-  AND o.priority_code <> :internal_test  -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE p.status_code = :captured         -- PAYMENT_STATUS 'captured'; reference.md
+  AND o.priority_code <> :internal_test  -- see the Exclusions section of reference.md
 GROUP BY p.method_code
 ORDER BY captured_amount DESC;
 ```
@@ -859,13 +889,13 @@ lean on net_terms and wire:
 
 ```sql
 -- Payment method mix by customer segment (reporting-eligible orders)
-SELECT c.segment_code,                 -- CUSTOMER_SEGMENT; label via 04_reference_keys_codes_and_conventions.md
-       p.method_code,                  -- PAYMENT_METHOD;  label via 04_reference_keys_codes_and_conventions.md
+SELECT c.segment_code,                 -- CUSTOMER_SEGMENT; label via reference.md
+       p.method_code,                  -- PAYMENT_METHOD;  label via reference.md
        COUNT(*) AS payments
 FROM payments p
 JOIN orders    o ON o.order_id = p.order_id
 JOIN customers c ON c.customer_id = o.customer_id
-WHERE o.priority_code <> :internal_test        -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE o.priority_code <> :internal_test        -- see the Exclusions section of reference.md
 GROUP BY c.segment_code, p.method_code
 ORDER BY c.segment_code, payments DESC;
 ```
@@ -878,7 +908,10 @@ Two tables cover promotions: `promotions` (the campaign catalog) and
 `order_promotions` (which orders received which promotion, and the discount
 granted).
 
-### promotions
+### Table: promotions
+
+- **Columns:** promotion_id, code, name, promo_type_code, value, start_date, end_date
+- **Joined by:** PK `promotion_id` (← `order_promotions.promotion_id`)
 
 | Column | Meaning |
 |---|---|
@@ -902,13 +935,16 @@ measure realized discount.
 ```sql
 -- Promotions active on a given date (:asof)
 SELECT promotion_id, code, name,
-       promo_type_code,                -- PROMO_TYPE; label via 04_reference_keys_codes_and_conventions.md
+       promo_type_code,                -- PROMO_TYPE; label via reference.md
        value, start_date, end_date
 FROM promotions
 WHERE :asof BETWEEN start_date AND end_date;   -- e.g. '2024-06-30'
 ```
 
-### order_promotions
+### Table: order_promotions
+
+- **Columns:** order_promotion_id, order_id, promotion_id, discount_amount
+- **Joined by:** PK `order_promotion_id`; FK `order_id` → `orders.order_id`, `promotion_id` → `promotions.promotion_id`
 
 | Column | Meaning |
 |---|---|
@@ -931,14 +967,14 @@ SELECT o.order_id,
        ROUND(o.order_total - COALESCE(SUM(op.discount_amount), 0), 2) AS net_of_promo
 FROM orders o
 LEFT JOIN order_promotions op ON op.order_id = o.order_id
-WHERE o.priority_code <> :internal_test        -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE o.priority_code <> :internal_test        -- see the Exclusions section of reference.md
 GROUP BY o.order_id, o.order_total;
 ```
 
 An order can in principle receive more than one promotion row; sum
 `discount_amount` per order rather than assuming a single row. Not every order
 has a promotion — most do not — so join with a LEFT JOIN and coalesce the sum to
-zero. Revenue-vs-discount definitions live in `04_reference_keys_codes_and_conventions.md`.
+zero. Revenue-vs-discount definitions live in `reference.md`.
 
 To measure a campaign's reach and cost, aggregate `order_promotions` up to the
 promotion, then join the catalog for the campaign's name and type:
@@ -946,13 +982,13 @@ promotion, then join the catalog for the campaign's name and type:
 ```sql
 -- Reach and realized discount per promotion (reporting-eligible orders)
 SELECT pr.code, pr.name,
-       pr.promo_type_code,             -- PROMO_TYPE; label via 04_reference_keys_codes_and_conventions.md
+       pr.promo_type_code,             -- PROMO_TYPE; label via reference.md
        COUNT(DISTINCT op.order_id)      AS orders_using,
        ROUND(SUM(op.discount_amount),2) AS total_discount
 FROM order_promotions op
 JOIN promotions pr ON pr.promotion_id = op.promotion_id
 JOIN orders     o  ON o.order_id = op.order_id
-WHERE o.priority_code <> :internal_test        -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE o.priority_code <> :internal_test        -- see the Exclusions section of reference.md
 GROUP BY pr.code, pr.name, pr.promo_type_code
 ORDER BY total_discount DESC;
 ```
@@ -970,7 +1006,10 @@ Gift cards are both a product we sell and a form of tender. Two tables cover
 them: `gift_cards` (the card master and its running balance) and
 `gift_card_transactions` (the ledger of activity against each card).
 
-### gift_cards
+### Table: gift_cards
+
+- **Columns:** gift_card_id, code, initial_balance, current_balance, status_code, issued_date, customer_id
+- **Joined by:** PK `gift_card_id` (← `gift_card_transactions.gift_card_id`); FK `customer_id` → `customers.customer_id` (nullable)
 
 | Column | Meaning |
 |---|---|
@@ -994,7 +1033,7 @@ gift-card status, nothing else.
 SELECT ROUND(SUM(current_balance), 2) AS outstanding_balance,
        COUNT(*) AS active_cards
 FROM gift_cards
-WHERE status_code = :active            -- GIFTCARD_STATUS 'active'; 04_reference_keys_codes_and_conventions.md
+WHERE status_code = :active            -- GIFTCARD_STATUS 'active'; reference.md
   AND current_balance > 0;
 ```
 
@@ -1003,7 +1042,10 @@ must decide how to treat unowned cards — either exclude NULL owners or bucket
 them as "unassigned". Do not inner-join to `customers` and silently drop them
 unless that is intended.
 
-### gift_card_transactions
+### Table: gift_card_transactions
+
+- **Columns:** gc_txn_id, gift_card_id, order_id, txn_type_code, amount, txn_ts
+- **Joined by:** PK `gc_txn_id`; FK `gift_card_id` → `gift_cards.gift_card_id`, `order_id` → `orders.order_id` (nullable)
 
 | Column | Meaning |
 |---|---|
@@ -1026,7 +1068,7 @@ SELECT substr(txn_ts, 1, 7) AS ym,
        ROUND(SUM(amount), 2) AS redeemed_amount,
        COUNT(*) AS redemptions
 FROM gift_card_transactions
-WHERE txn_type_code = :redeem          -- GIFTCARD_TXN_TYPE 'redeem'; 04_reference_keys_codes_and_conventions.md
+WHERE txn_type_code = :redeem          -- GIFTCARD_TXN_TYPE 'redeem'; reference.md
   AND order_id IS NOT NULL
 GROUP BY ym
 ORDER BY ym;
@@ -1035,14 +1077,14 @@ ORDER BY ym;
 When gift cards are used as tender they show up both here (as a redeem
 transaction) and, at the order level, potentially as a `gift_card` payment method
 in `payments`. Treat `gift_card_transactions` as the authoritative record of
-card activity and balance movement; see `04_reference_keys_codes_and_conventions.md` for how
+card activity and balance movement; see `reference.md` for how
 gift cards sit in the overall money picture.
 
 An issue transaction and any reloads add value; redemptions and (rarely) refunds
 against a card move it. Reconciling the ledger against the stored
 `current_balance` is a data-quality check rather than a routine report, and it is
 better handled as an approximate balance movement than an exact tie-out — see
-`04_reference_keys_codes_and_conventions.md` for what to expect. The routine reporting
+`reference.md` for what to expect. The routine reporting
 uses of these tables are (a) outstanding liability from active balances and (b)
 redemption volume applied to orders (the query above), both of which read cleanly.
 
@@ -1064,14 +1106,14 @@ grain (summing `order_total` once per order, not per line):
 
 ```sql
 SELECT c.customer_id, c.first_name, c.last_name,
-       c.segment_code,                 -- CUSTOMER_SEGMENT; label via 04_reference_keys_codes_and_conventions.md
+       c.segment_code,                 -- CUSTOMER_SEGMENT; label via reference.md
        COUNT(o.order_id)              AS orders,
        ROUND(SUM(o.order_total), 2)   AS lifetime_value,
        MIN(o.order_date)              AS first_order,
        MAX(o.order_date)              AS last_order
 FROM customers c
 JOIN orders o ON o.customer_id = c.customer_id
-WHERE o.priority_code <> :internal_test        -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE o.priority_code <> :internal_test        -- see the Exclusions section of reference.md
   AND o.status <> :draft                        -- ORDER_STATUS 'draft'; drop WIP
 GROUP BY c.customer_id
 ORDER BY lifetime_value DESC;
@@ -1087,7 +1129,7 @@ FROM order_lines ol
 JOIN products p ON p.sku = ol.sku
 JOIN orders  o ON o.order_id = ol.order_id
 WHERE p.is_active = 0
-  AND o.priority_code <> :internal_test        -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+  AND o.priority_code <> :internal_test        -- see the Exclusions section of reference.md
 GROUP BY p.sku, p.name
 HAVING units_sold > 0
 ORDER BY units_sold DESC;
@@ -1107,12 +1149,12 @@ LEFT JOIN (
     SELECT order_id, SUM(discount_amount) AS promo_discount
     FROM order_promotions GROUP BY order_id
 ) op ON op.order_id = o.order_id
-WHERE o.priority_code <> :internal_test;       -- see the Exclusions section of 04_reference_keys_codes_and_conventions.md
+WHERE o.priority_code <> :internal_test;       -- see the Exclusions section of reference.md
 ```
 
 These patterns — aggregate each many-side to a single grain before joining, keep
 the internal_test exclusion on orders, and bridge `sku` ⇄ `products` when
-touching the product — recur throughout `04_reference_keys_codes_and_conventions.md`.
+touching the product — recur throughout `reference.md`.
 
 ## Nullability and empty-set traps across the domain
 
@@ -1139,7 +1181,7 @@ Separately, the SKU ⇄ item_code mismatch produces the most dangerous empty set
 all: a wrong-vocabulary join returns zero rows with no error. When a
 cross-domain query returns nothing, check the identifier bridge before assuming
 the data is genuinely empty. Data-quality specifics and the exclusions that ride
-on top of them are catalogued in `04_reference_keys_codes_and_conventions.md`.
+on top of them are catalogued in `reference.md`.
 
 ## Putting the domain together
 
@@ -1147,26 +1189,26 @@ A few reminders that recur across every Order Management query:
 
 1. **Exclude internal_test orders** from business reporting with
    `WHERE priority_code <> :internal_test`. They are ~3% of orders and are
-   otherwise indistinguishable. See `04_reference_keys_codes_and_conventions.md`.
+   otherwise indistinguishable. See `reference.md`.
 2. **Bridge SKU ⇄ item_code through `products`.** Order lines use `sku`;
    inventory/supplier tables use `item_code`. A direct join across the two
-   returns zero rows silently. See `04_reference_keys_codes_and_conventions.md`.
+   returns zero rows silently. See `reference.md`.
 3. **Every `status` / `status_code` column has its own code set.** ORDER_STATUS
    decodes `orders.status` and `order_status_history.status`; PAYMENT_STATUS
    decodes `payments.status_code`; GIFTCARD_STATUS decodes `gift_cards.status_code`.
-   Never reuse a decode across tables. See `04_reference_keys_codes_and_conventions.md` and
-   `04_reference_keys_codes_and_conventions.md`.
+   Never reuse a decode across tables. See `reference.md` and
+   `reference.md`.
 4. **`order_total` is the sum of line totals and is net of line discounts but
    not of order-level promotions.** For a promotion-net figure subtract
-   `order_promotions.discount_amount`. See `04_reference_keys_codes_and_conventions.md` and
-   `04_reference_keys_codes_and_conventions.md`.
+   `order_promotions.discount_amount`. See `reference.md` and
+   `reference.md`.
 5. **Prices come in three flavours:** current list (`products.unit_price`),
    historical list (`price_history`), and price paid (`order_lines.unit_price`).
-   Use the right one for the question. See `04_reference_keys_codes_and_conventions.md`.
+   Use the right one for the question. See `reference.md`.
 
 For the money side of orders — revenue recognition, refunds, promotions, gift
 cards as tender, and how all of it composes — continue to
-`04_reference_keys_codes_and_conventions.md`. For the physical journey of a fulfilled order —
+`reference.md`. For the physical journey of a fulfilled order —
 picking, packing, shipping, tracking, and returns — see
-`02_fulfillment_and_shipping.md`. For the canonical metric definitions used in
-executive reporting, see `04_reference_keys_codes_and_conventions.md`.
+`fulfillment_and_shipping.md`. For the canonical metric definitions used in
+executive reporting, see `reference.md`.

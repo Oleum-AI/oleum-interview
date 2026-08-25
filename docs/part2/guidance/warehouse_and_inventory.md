@@ -4,7 +4,7 @@ This document is the topical reference for the Warehouse & Inventory domain: the
 
 Reporting convention throughout: TODAY is `2024-12-31`. Money is in US dollars with two decimal places, weights are in kilograms, dates are `YYYY-MM-DD`, and timestamps are ISO-8601. All SQL is written for SQLite.
 
-Coded columns (`status`, `*_code`) are decoded via the **Code Dictionary** in `04_reference_keys_codes_and_conventions.md`; this guide names the code set each column uses, and that dictionary gives the integer values.
+Coded columns (`status`, `*_code`) are decoded via the **Code Dictionary** in `reference.md`; this guide names the code set each column uses, and that dictionary gives the integer values.
 
 ## The single most important rule in this domain: products are identified by `item_code`
 
@@ -33,9 +33,9 @@ WHERE p.sku = 'SKU-00042'
 GROUP BY p.sku, p.name;
 ```
 
-Whenever a question phrases a product by SKU but the data you need lives on the inventory side (on-hand, cost, lots, transactions, transfers, counts), route through `products.product_id = item_code`. The full treatment of the two identifier vocabularies, the bridge table, and the conversion rules lives in **04_reference_keys_codes_and_conventions.md**; consult it before joining across domains.
+Whenever a question phrases a product by SKU but the data you need lives on the inventory side (on-hand, cost, lots, transactions, transfers, counts), route through `products.product_id = item_code`. The full treatment of the two identifier vocabularies, the bridge table, and the conversion rules lives in **reference.md**; consult it before joining across domains.
 
-A second cross-cutting rule affects almost every table below: coded columns (anything ending in `_code`, plus the `status` / `status_code` columns) never store a label directly. They store an integer that must be decoded through a named code set. This document names the code set for each column; the integer values live only in **04_reference_keys_codes_and_conventions.md**. Critically, the same column name means different things in different tables — a `status` of "received" on a replenishment order, a `status_code` of "received" on a stock transfer, and a `status_code` of "reconciled" on a cycle count are entirely separate concepts drawn from three separate code sets (`PO_STATUS`, `TRANSFER_STATUS`, `CYCLE_COUNT_STATUS`). Never carry a decode from one table to another. The lifecycle and status semantics are treated in full in **04_reference_keys_codes_and_conventions.md**.
+A second cross-cutting rule affects almost every table below: coded columns (anything ending in `_code`, plus the `status` / `status_code` columns) never store a label directly. They store an integer that must be decoded through a named code set. This document names the code set for each column; the integer values live only in **reference.md**. Critically, the same column name means different things in different tables — a `status` of "received" on a replenishment order, a `status_code` of "received" on a stock transfer, and a `status_code` of "reconciled" on a cycle count are entirely separate concepts drawn from three separate code sets (`PO_STATUS`, `TRANSFER_STATUS`, `CYCLE_COUNT_STATUS`). Never carry a decode from one table to another. The lifecycle and status semantics are treated in full in **reference.md**.
 
 ---
 
@@ -43,7 +43,10 @@ A second cross-cutting rule affects almost every table below: coded columns (any
 
 Inventory physically lives somewhere. The three tables `warehouses`, `warehouse_zones`, and `bins` model a strict three-level containment hierarchy: a warehouse contains zones, and a zone contains bins. Every level carries its own `capacity_units` so you can reason about space at whatever granularity a question needs.
 
-### 1.1 `warehouses`
+### Table: warehouses
+
+- **Columns:** warehouse_id, code, name, city, state, country, capacity_units, is_active
+- **Joined by:** PK `warehouse_id` (← `warehouse_zones.warehouse_id`, `bins.warehouse_id`, `inventory.warehouse_id`, `inventory_lots.warehouse_id`, `inventory_transactions.warehouse_id`, `replenishment_orders.warehouse_id`, `receipts.warehouse_id`, `stock_transfers.from_warehouse_id`, `stock_transfers.to_warehouse_id`, `inventory_adjustments.warehouse_id`, `cycle_counts.warehouse_id`, `pick_tasks.warehouse_id`, `shipments.origin_warehouse_id`); `code` UNIQUE
 
 The top of the hierarchy and the anchor for almost everything in this domain.
 
@@ -68,7 +71,10 @@ ORDER BY capacity_units DESC;
 
 Do not confuse `warehouses` with `facilities` (in the Fulfillment domain). Facilities model the transportation network (origin DCs, hubs, cross-docks, last-mile depots, ports) that shipments move through; warehouses are the stock-holding sites that inventory is counted in and shipped from. A shipment's `origin_warehouse_id` points at `warehouses`; a shipment leg's `from_facility_id` / `to_facility_id` point at `facilities`. They are separate tables with separate keys.
 
-### 1.2 `warehouse_zones`
+### Table: warehouse_zones
+
+- **Columns:** zone_id, warehouse_id, zone_code, zone_type_code, capacity_units
+- **Joined by:** PK `zone_id` (← `bins.zone_id`); FK `warehouse_id` → `warehouses.warehouse_id`
 
 A zone is a functional area inside a warehouse.
 
@@ -80,11 +86,11 @@ A zone is a functional area inside a warehouse.
 | `zone_type_code` | The functional role of the zone. Coded column; decode through the **ZONE_TYPE** code set. Labels include receiving, storage, picking, shipping, and cold_storage. |
 | `capacity_units` | Holding capacity of the zone. |
 
-`zone_type_code` tells you what the zone is for. Receiving zones absorb inbound stock, storage zones hold reserve, picking zones front the pick faces, shipping zones stage outbound, and cold_storage handles temperature-controlled goods. Because a zone's role is a coded value, always name the code set (ZONE_TYPE) and let the reader resolve the integer through 04_reference_keys_codes_and_conventions.md rather than hard-coding a number inline.
+`zone_type_code` tells you what the zone is for. Receiving zones absorb inbound stock, storage zones hold reserve, picking zones front the pick faces, shipping zones stage outbound, and cold_storage handles temperature-controlled goods. Because a zone's role is a coded value, always name the code set (ZONE_TYPE) and let the reader resolve the integer through reference.md rather than hard-coding a number inline.
 
 ```sql
 -- Count zones of each functional type per warehouse.
--- Replace :cold_storage_code with the ZONE_TYPE value for cold_storage from 04_reference_keys_codes_and_conventions.md.
+-- Replace :cold_storage_code with the ZONE_TYPE value for cold_storage from reference.md.
 SELECT w.name AS warehouse, COUNT(*) AS cold_zones, SUM(z.capacity_units) AS cold_capacity
 FROM warehouse_zones z
 JOIN warehouses w ON w.warehouse_id = z.warehouse_id
@@ -95,7 +101,10 @@ ORDER BY cold_capacity DESC;
 
 The named-parameter placeholder above is deliberate: this document names the code set, and the actual integer is looked up once, in the dictionary. That two-hop discipline (column → code-set name here → values in the **Code Dictionary**) keeps decodes consistent and prevents the wrong integer from leaking into a query.
 
-### 1.3 `bins`
+### Table: bins
+
+- **Columns:** bin_id, warehouse_id, zone_id, bin_code, capacity_units
+- **Joined by:** PK `bin_id` (← `pick_lines.bin_id`, `cycle_counts.bin_id`); FK `warehouse_id` → `warehouses.warehouse_id`; FK `zone_id` → `warehouse_zones.zone_id`
 
 A bin is the finest storage location — a specific shelf, slot, or pallet position.
 
@@ -140,7 +149,10 @@ Bins connect back to operations in two places: `pick_lines.bin_id` records the l
 
 Before stock can be received it has to be sourced. Three tables model the vendor side: `suppliers` (the vendor master), `supplier_products` (the catalog of what each supplier sells us, and at what cost and lead time), and `supplier_contacts` (the people).
 
-### 2.1 `suppliers`
+### Table: suppliers
+
+- **Columns:** supplier_id, name, country, status_code, default_lead_time_days
+- **Joined by:** PK `supplier_id` (← `supplier_products.supplier_id`, `supplier_contacts.supplier_id`, `replenishment_orders.supplier_id`, `supplier_invoices.supplier_id`)
 
 | Column | Meaning |
 |---|---|
@@ -154,7 +166,7 @@ Before stock can be received it has to be sourced. Three tables model the vendor
 
 ```sql
 -- Suppliers eligible for new POs (status decodes to active in SUPPLIER_STATUS).
--- Replace :supplier_active with the SUPPLIER_STATUS value for active from 04_reference_keys_codes_and_conventions.md.
+-- Replace :supplier_active with the SUPPLIER_STATUS value for active from reference.md.
 SELECT supplier_id, name, country, default_lead_time_days
 FROM suppliers
 WHERE status_code = :supplier_active
@@ -163,7 +175,10 @@ ORDER BY name;
 
 `default_lead_time_days` is the supplier-level default. When you need the lead time for a specific product/supplier pairing, prefer the item-level `supplier_products.lead_time_days` and fall back to `default_lead_time_days` only when the item-level value is missing.
 
-### 2.2 `supplier_products`
+### Table: supplier_products
+
+- **Columns:** supplier_product_id, supplier_id, item_code, supplier_sku, unit_cost, lead_time_days, is_preferred
+- **Joined by:** PK `supplier_product_id`; FK `supplier_id` → `suppliers.supplier_id`; `item_code` → `products.product_id` (INTEGER product key, NOT a SKU string); `supplier_sku` is the vendor's own part number — NOT our `products.sku`, never join it to `order_lines.sku`
 
 This is the sourcing catalog: one row per (supplier, product) pairing the supplier can fulfill. It is also where the **preferred supplier** for an item is recorded.
 
@@ -224,7 +239,10 @@ JOIN suppliers s ON s.supplier_id = sp.supplier_id
 WHERE sp.is_preferred = 1;
 ```
 
-### 2.3 `supplier_contacts`
+### Table: supplier_contacts
+
+- **Columns:** contact_id, supplier_id, name, email, phone, role
+- **Joined by:** PK `contact_id`; FK `supplier_id` → `suppliers.supplier_id`
 
 The people at each supplier.
 
@@ -246,7 +264,7 @@ WHERE LOWER(c.role) LIKE '%account%'
 ORDER BY s.name;
 ```
 
-Supplier invoices tie the vendor relationship to money. They are summarized under section 8 below and covered in full in **04_reference_keys_codes_and_conventions.md**.
+Supplier invoices tie the vendor relationship to money. They are summarized under section 8 below and covered in full in **reference.md**.
 
 ---
 
@@ -254,7 +272,10 @@ Supplier invoices tie the vendor relationship to money. They are summarized unde
 
 The `inventory` table is the current stock position — the authoritative snapshot of how much of each product sits in each warehouse right now, together with the reorder parameters that drive replenishment.
 
-### 3.1 `inventory` columns and the one-row-per-product-per-warehouse rule
+### Table: inventory
+
+- **Columns:** inventory_id, warehouse_id, item_code, quantity_on_hand, quantity_allocated, reorder_point, reorder_qty, last_counted_date
+- **Joined by:** PK `inventory_id`; FK `warehouse_id` → `warehouses.warehouse_id`; `item_code` → `products.product_id`; UNIQUE (`warehouse_id`, `item_code`) — exactly one row per product per warehouse
 
 | Column | Meaning |
 |---|---|
@@ -309,7 +330,7 @@ FROM inventory
 WHERE quantity_allocated > quantity_on_hand;
 ```
 
-The formal definition of available quantity, and the standard aggregations built on it, are recorded in **04_reference_keys_codes_and_conventions.md**; use that as the canonical wording.
+The formal definition of available quantity, and the standard aggregations built on it, are recorded in **reference.md**; use that as the canonical wording.
 
 Because of the `UNIQUE (warehouse_id, item_code)` rule, a network-wide availability rollup is a clean per-item sum with no double counting. This is the query behind "how many units of this product can we sell across the whole network right now":
 
@@ -359,11 +380,11 @@ WHERE i.quantity_on_hand < i.reorder_point
 ORDER BY (i.reorder_point - i.quantity_on_hand) DESC;
 ```
 
-The exact definition (`quantity_on_hand < reorder_point`) is also recorded in **04_reference_keys_codes_and_conventions.md**. When a question asks for "items that need reordering" or "stockouts risk," this is the measure to reach for.
+The exact definition (`quantity_on_hand < reorder_point`) is also recorded in **reference.md**. When a question asks for "items that need reordering" or "stockouts risk," this is the measure to reach for.
 
 ### 3.4 `reorder_qty` — how much to reorder
 
-`reorder_point` answers *when* to reorder; `reorder_qty` answers *how much*. When a position drops below its reorder point, the standard replenishment action is to raise a purchase for `reorder_qty` units (typically from the item's preferred supplier — see section 2.2). It is the fixed order quantity, not a target level: replenishment raises `reorder_qty` units, it does not "top up to `reorder_qty`."
+`reorder_point` answers *when* to reorder; `reorder_qty` answers *how much*. When a position drops below its reorder point, the standard replenishment action is to raise a purchase for `reorder_qty` units (typically from the item's preferred supplier — see the `supplier_products` table above). It is the fixed order quantity, not a target level: replenishment raises `reorder_qty` units, it does not "top up to `reorder_qty`."
 
 A first-pass replenishment worklist therefore joins the below-reorder positions to the preferred supplier and the item's cost:
 
@@ -406,7 +427,7 @@ On-hand alone does not tell you whether a position is healthy — the same 100 u
 
 ```sql
 -- Days of cover: on-hand divided by average daily outbound consumption over the last 90 days.
--- Replace :txn_shipment with the INV_TXN_TYPE value for shipment from 04_reference_keys_codes_and_conventions.md.
+-- Replace :txn_shipment with the INV_TXN_TYPE value for shipment from reference.md.
 WITH consumption AS (
     SELECT warehouse_id, item_code,
            SUM(-quantity_delta) AS units_out_90d
@@ -435,6 +456,11 @@ Positions with a very low days-of-cover figure are stockout risks even if they s
 ## 4. Inventory lots and expiry tracking
 
 Where `inventory` is a single netted position, `inventory_lots` breaks the same stock down into receiving lots so that batch and expiry can be tracked.
+
+### Table: inventory_lots
+
+- **Columns:** lot_id, warehouse_id, item_code, lot_number, quantity, received_date, expiry_date
+- **Joined by:** PK `lot_id`; FK `warehouse_id` → `warehouses.warehouse_id`; `item_code` → `products.product_id`
 
 | Column | Meaning |
 |---|---|
@@ -489,6 +515,11 @@ GROUP BY item_code, warehouse_id;
 ## 5. The inventory transaction ledger
 
 `inventory_transactions` is the movement ledger. Where `inventory` holds the current balance, `inventory_transactions` records every event that changed it. It is the append-only history that reconciles on-hand movements, and it is the primary tool for auditing how a position got to where it is.
+
+### Table: inventory_transactions
+
+- **Columns:** txn_id, warehouse_id, item_code, txn_type_code, quantity_delta, reference_type, reference_id, txn_ts
+- **Joined by:** PK `txn_id`; FK `warehouse_id` → `warehouses.warehouse_id`; `item_code` → `products.product_id`; soft/polymorphic (`reference_type`, `reference_id`) → the source document's PK (receipts / shipments / stock_transfers / inventory_adjustments) — branch on `reference_type`, no schema FK
 
 | Column | Meaning |
 |---|---|
@@ -566,7 +597,7 @@ Because the ledger stamps every movement with a type and timestamp, it is the na
 
 ```sql
 -- Monthly movement volume by type for one warehouse in 2024.
--- Use the INV_TXN_TYPE code set in 04_reference_keys_codes_and_conventions.md to label txn_type_code.
+-- Use the INV_TXN_TYPE code set in reference.md to label txn_type_code.
 SELECT strftime('%Y-%m', txn_ts) AS month,
        txn_type_code,
        COUNT(*)                  AS movements,
@@ -586,7 +617,10 @@ Note the use of `ABS(quantity_delta)` here: throughput is about how much stock m
 
 Replenishment orders are the inbound purchase orders raised on suppliers to restock warehouses. They come in two tables: `replenishment_orders` (the header) and `replenishment_lines` (the line items).
 
-### 6.1 `replenishment_orders`
+### Table: replenishment_orders
+
+- **Columns:** repl_id, supplier_id, warehouse_id, status, order_date, expected_date, received_date, total_cost
+- **Joined by:** PK `repl_id` (← `replenishment_lines.repl_id`, `receipts.repl_id`, `supplier_invoices.repl_id`); FK `supplier_id` → `suppliers.supplier_id`; FK `warehouse_id` → `warehouses.warehouse_id`
 
 | Column | Meaning |
 |---|---|
@@ -599,7 +633,7 @@ Replenishment orders are the inbound purchase orders raised on suppliers to rest
 | `received_date` | When the PO was fully received. Null until then. |
 | `total_cost` | The PO's total value in dollars. |
 
-`replenishment_orders.status` is decoded with **PO_STATUS and only PO_STATUS**. The PO_STATUS "received" label is the terminal state of a purchase order — it is a completely different value from the TRANSFER_STATUS "received" used on stock transfers and unrelated to the CYCLE_COUNT_STATUS "reconciled" terminal on cycle counts. Do not reuse a decode from one of those tables here. The full lifecycle for each of these is laid out in **04_reference_keys_codes_and_conventions.md**.
+`replenishment_orders.status` is decoded with **PO_STATUS and only PO_STATUS**. The PO_STATUS "received" label is the terminal state of a purchase order — it is a completely different value from the TRANSFER_STATUS "received" used on stock transfers and unrelated to the CYCLE_COUNT_STATUS "reconciled" terminal on cycle counts. Do not reuse a decode from one of those tables here. The full lifecycle for each of these is laid out in **reference.md**.
 
 - **Open POs** are those still awaiting stock — the draft/open/partial states (i.e. anything that has not reached received or cancelled).
 - **Received POs** are complete (status decodes to received); `received_date` should be populated.
@@ -607,7 +641,7 @@ Replenishment orders are the inbound purchase orders raised on suppliers to rest
 
 ```sql
 -- Open purchase orders (not yet fully received, not cancelled), aged against TODAY.
--- Replace the placeholders with the PO_STATUS values from 04_reference_keys_codes_and_conventions.md.
+-- Replace the placeholders with the PO_STATUS values from reference.md.
 SELECT po.repl_id, s.name AS supplier, w.name AS warehouse,
        po.order_date, po.expected_date, po.total_cost,
        CAST(julianday('2024-12-31') - julianday(po.expected_date) AS INTEGER) AS days_past_expected
@@ -626,7 +660,10 @@ WHERE status IN (:po_open, :po_partial)
   AND expected_date < '2024-12-31';
 ```
 
-### 6.2 `replenishment_lines`
+### Table: replenishment_lines
+
+- **Columns:** repl_line_id, repl_id, item_code, qty_ordered, qty_received, unit_cost
+- **Joined by:** PK `repl_line_id`; FK `repl_id` → `replenishment_orders.repl_id`; `item_code` → `products.product_id`
 
 | Column | Meaning |
 |---|---|
@@ -677,7 +714,7 @@ JOIN replenishment_lines rl ON rl.repl_id = po.repl_id
 WHERE po.status IN (:po_open, :po_partial);
 ```
 
-A received PO posts inbound movements to the inventory ledger (receipt-typed transactions with positive deltas) and generates receipt records (section 7). A supplier invoice is billed against the PO (section 8, detail in the **Pricing, Costs & Billing** section of `04_reference_keys_codes_and_conventions.md`).
+A received PO posts inbound movements to the inventory ledger (receipt-typed transactions with positive deltas) and generates receipt records (section 7). A supplier invoice is billed against the PO (section 8, detail in the **Pricing, Costs & Billing** section of `reference.md`).
 
 ### 6.4 Supplier lead-time and on-time performance
 
@@ -685,7 +722,7 @@ The PO header carries `order_date`, `expected_date`, and `received_date`, which 
 
 ```sql
 -- Supplier delivery performance on received POs: promised vs actual lead time, on-time rate.
--- Replace :po_received with the PO_STATUS value for received from 04_reference_keys_codes_and_conventions.md.
+-- Replace :po_received with the PO_STATUS value for received from reference.md.
 SELECT s.name AS supplier,
        COUNT(*) AS pos_received,
        ROUND(AVG(julianday(po.received_date) - julianday(po.order_date)), 1) AS avg_actual_lead_days,
@@ -708,7 +745,10 @@ A supplier whose average actual lead time runs well beyond its `default_lead_tim
 
 When stock physically arrives against a replenishment order, it is booked as a receipt. `receipts` is the receiving event header; `receipt_lines` records what and how much, and in what condition.
 
-### 7.1 `receipts`
+### Table: receipts
+
+- **Columns:** receipt_id, repl_id, warehouse_id, received_ts, reference
+- **Joined by:** PK `receipt_id` (← `receipt_lines.receipt_id`); FK `repl_id` → `replenishment_orders.repl_id`; FK `warehouse_id` → `warehouses.warehouse_id`
 
 | Column | Meaning |
 |---|---|
@@ -731,7 +771,10 @@ GROUP BY r.receipt_id, r.received_ts, r.reference
 ORDER BY r.received_ts;
 ```
 
-### 7.2 `receipt_lines`
+### Table: receipt_lines
+
+- **Columns:** receipt_line_id, receipt_id, item_code, qty_received, condition_code
+- **Joined by:** PK `receipt_line_id`; FK `receipt_id` → `receipts.receipt_id`; `item_code` → `products.product_id`
 
 | Column | Meaning |
 |---|---|
@@ -745,7 +788,7 @@ ORDER BY r.received_ts;
 
 ```sql
 -- Damaged/defective inbound by supplier (which vendors ship us bad goods?).
--- Replace the placeholders with ITEM_CONDITION values from 04_reference_keys_codes_and_conventions.md.
+-- Replace the placeholders with ITEM_CONDITION values from reference.md.
 SELECT s.name AS supplier,
        SUM(CASE WHEN rlx.condition_code IN (:cond_damaged, :cond_defective)
                 THEN rlx.qty_received ELSE 0 END) AS bad_units,
@@ -778,6 +821,11 @@ GROUP BY rl.item_code, rl.qty_ordered;
 
 `supplier_invoices` is the accounts-payable side of the supplier relationship — the vendor's bill for goods delivered against a replenishment order.
 
+### Table: supplier_invoices
+
+- **Columns:** supplier_invoice_id, supplier_id, repl_id, invoice_number, amount, status_code, invoice_date, due_date, paid_date
+- **Joined by:** PK `supplier_invoice_id`; FK `supplier_id` → `suppliers.supplier_id`; FK `repl_id` → `replenishment_orders.repl_id` (nullable); `invoice_number` UNIQUE
+
 | Column | Meaning |
 |---|---|
 | `supplier_invoice_id` | Primary key. |
@@ -792,7 +840,7 @@ GROUP BY rl.item_code, rl.qty_ordered;
 
 ```sql
 -- Unpaid, approved supplier invoices past due as of TODAY.
--- Replace the placeholders with INVOICE_STATUS values from 04_reference_keys_codes_and_conventions.md.
+-- Replace the placeholders with INVOICE_STATUS values from reference.md.
 SELECT si.invoice_number, s.name AS supplier, si.amount, si.due_date
 FROM supplier_invoices si
 JOIN suppliers s ON s.supplier_id = si.supplier_id
@@ -802,7 +850,7 @@ WHERE si.status_code = :invoice_approved
 ORDER BY si.due_date;
 ```
 
-Full invoice semantics — the status lifecycle, matching invoices to receipts, aging buckets, and how supplier invoices sit alongside carrier invoices in the cost picture — are documented in **04_reference_keys_codes_and_conventions.md**. Treat that file as authoritative for anything billing-related; this section only situates the table within the inventory flow.
+Full invoice semantics — the status lifecycle, matching invoices to receipts, aging buckets, and how supplier invoices sit alongside carrier invoices in the cost picture — are documented in **reference.md**. Treat that file as authoritative for anything billing-related; this section only situates the table within the inventory flow.
 
 ---
 
@@ -810,7 +858,10 @@ Full invoice semantics — the status lifecycle, matching invoices to receipts, 
 
 Stock transfers move inventory between warehouses within the network (as opposed to buying it from a supplier). The header is `stock_transfers`; the detail is `stock_transfer_lines`.
 
-### 9.1 `stock_transfers`
+### Table: stock_transfers
+
+- **Columns:** transfer_id, from_warehouse_id, to_warehouse_id, status_code, created_date, shipped_date, received_date
+- **Joined by:** PK `transfer_id` (← `stock_transfer_lines.transfer_id`); FK `from_warehouse_id` → `warehouses.warehouse_id`; FK `to_warehouse_id` → `warehouses.warehouse_id` (two aliased joins to the same table)
 
 | Column | Meaning |
 |---|---|
@@ -822,7 +873,7 @@ Stock transfers move inventory between warehouses within the network (as opposed
 | `shipped_date` | When stock left the source. Null until shipped. |
 | `received_date` | When stock arrived at the destination. Null until received. |
 
-`stock_transfers.status_code` decodes through **TRANSFER_STATUS and only TRANSFER_STATUS**. The TRANSFER_STATUS "received" terminal here is a *different value in a different code set* from the PO_STATUS "received" on replenishment orders — do not carry a PO decode onto a transfer or vice versa. The three date columns and the status should stay consistent: an in_transit transfer has a `shipped_date` but no `received_date`; a received transfer has both. See **04_reference_keys_codes_and_conventions.md** for the state machine.
+`stock_transfers.status_code` decodes through **TRANSFER_STATUS and only TRANSFER_STATUS**. The TRANSFER_STATUS "received" terminal here is a *different value in a different code set* from the PO_STATUS "received" on replenishment orders — do not carry a PO decode onto a transfer or vice versa. The three date columns and the status should stay consistent: an in_transit transfer has a `shipped_date` but no `received_date`; a received transfer has both. See **reference.md** for the state machine.
 
 Note both `from_warehouse_id` and `to_warehouse_id` reference the same `warehouses` table, so joining warehouse names requires two aliased joins:
 
@@ -840,7 +891,10 @@ WHERE t.status_code = :transfer_in_transit
 ORDER BY t.shipped_date;
 ```
 
-### 9.2 `stock_transfer_lines`
+### Table: stock_transfer_lines
+
+- **Columns:** transfer_line_id, transfer_id, item_code, qty_requested, qty_shipped, qty_received
+- **Joined by:** PK `transfer_line_id`; FK `transfer_id` → `stock_transfers.transfer_id`; `item_code` → `products.product_id`
 
 | Column | Meaning |
 |---|---|
@@ -868,7 +922,7 @@ A shipped transfer posts a transfer_out (negative delta) movement at the source 
 
 ```sql
 -- Both ledger legs for transfers of one product (out at source, in at destination).
--- Replace the placeholders with INV_TXN_TYPE values from 04_reference_keys_codes_and_conventions.md.
+-- Replace the placeholders with INV_TXN_TYPE values from reference.md.
 SELECT txn_type_code, warehouse_id, SUM(quantity_delta) AS net
 FROM inventory_transactions
 WHERE item_code = 42
@@ -881,6 +935,11 @@ GROUP BY txn_type_code, warehouse_id;
 ## 10. Inventory adjustments
 
 Not every change in on-hand comes from a receipt, shipment, or transfer. `inventory_adjustments` records manual corrections — damage write-offs, theft/shrinkage, found stock, and bookkeeping corrections.
+
+### Table: inventory_adjustments
+
+- **Columns:** adjustment_id, warehouse_id, item_code, adjustment_date, quantity_delta, reason_code
+- **Joined by:** PK `adjustment_id`; FK `warehouse_id` → `warehouses.warehouse_id`; `item_code` → `products.product_id`
 
 | Column | Meaning |
 |---|---|
@@ -897,7 +956,7 @@ Not every change in on-hand comes from a receipt, shipment, or transfer. `invent
 
 ```sql
 -- Net adjustment impact by reason over 2024 (which reasons cost us stock?).
--- Reference the ADJ_REASON code set in 04_reference_keys_codes_and_conventions.md to label reason_code.
+-- Reference the ADJ_REASON code set in reference.md to label reason_code.
 SELECT reason_code,
        COUNT(*)             AS adjustments,
        SUM(quantity_delta)  AS net_units,
@@ -934,6 +993,11 @@ ORDER BY loss_value DESC;
 
 `cycle_counts` records physical inventory verification — the routine re-counting of stock, bin by bin, that keeps the book honest. It is the source of the inventory-accuracy metrics and, when it finds a discrepancy, the trigger for an adjustment.
 
+### Table: cycle_counts
+
+- **Columns:** count_id, warehouse_id, item_code, bin_id, system_qty, counted_qty, variance, count_date, status_code
+- **Joined by:** PK `count_id`; FK `warehouse_id` → `warehouses.warehouse_id`; `item_code` → `products.product_id`; FK `bin_id` → `bins.bin_id` (nullable)
+
 | Column | Meaning |
 |---|---|
 | `count_id` | Primary key. |
@@ -959,7 +1023,7 @@ WHERE variance <> counted_qty - system_qty;
 
 ### 11.2 The count workflow status
 
-`cycle_counts.status_code` uses the **CYCLE_COUNT_STATUS** code set — a three-state workflow whose terminal label is **reconciled**. This is the point to re-state HARD RULE 3 in context: the CYCLE_COUNT_STATUS "reconciled" terminal is *not* the PO_STATUS "received" and *not* the TRANSFER_STATUS "received." All three are terminal "done" states on different documents drawn from different code sets, and there is no shared integer or shared decode among them. A count moves scheduled → counted → reconciled: scheduled means planned but not yet performed, counted means the physical count is in but not yet actioned, and reconciled means any variance has been resolved (typically by posting an inventory adjustment with the cycle_count reason). The lifecycle is detailed in **04_reference_keys_codes_and_conventions.md**.
+`cycle_counts.status_code` uses the **CYCLE_COUNT_STATUS** code set — a three-state workflow whose terminal label is **reconciled**. This is the point to re-state HARD RULE 3 in context: the CYCLE_COUNT_STATUS "reconciled" terminal is *not* the PO_STATUS "received" and *not* the TRANSFER_STATUS "received." All three are terminal "done" states on different documents drawn from different code sets, and there is no shared integer or shared decode among them. A count moves scheduled → counted → reconciled: scheduled means planned but not yet performed, counted means the physical count is in but not yet actioned, and reconciled means any variance has been resolved (typically by posting an inventory adjustment with the cycle_count reason). The lifecycle is detailed in **reference.md**.
 
 ```sql
 -- Counts that found a discrepancy but have not been reconciled yet.
@@ -1002,7 +1066,7 @@ GROUP BY c.warehouse_id, w.name
 ORDER BY total_abs_variance DESC;
 ```
 
-The canonical definitions of variance, count accuracy, and the below-reorder and available measures all live in **04_reference_keys_codes_and_conventions.md**; use those wordings when a report needs to match the standard.
+The canonical definitions of variance, count accuracy, and the below-reorder and available measures all live in **reference.md**; use those wordings when a report needs to match the standard.
 
 Cycle counts also close the loop with `inventory.last_counted_date` (section 3.5): a count on an item/warehouse should advance that date, and reconciling a discrepant count posts an `inventory_adjustment` with the cycle_count reason (section 10), which in turn posts an adjustment-typed movement to the ledger (section 5). That chain — count → adjustment → ledger → refreshed on-hand — is how physical reality is written back into the book.
 
@@ -1017,15 +1081,15 @@ The tables in this domain describe one continuous flow, and most substantive que
 3. **Order.** A `replenishment_orders` header with `replenishment_lines` records the purchase; its status runs through PO_STATUS toward the received terminal.
 4. **Receive.** `receipts` and `receipt_lines` book the physical arrival (with an ITEM_CONDITION on each line); partial deliveries accumulate as multiple receipts and show as a partial PO status.
 5. **Post.** Every receipt posts a positive-delta receipt movement to `inventory_transactions`, which raises `inventory.quantity_on_hand`.
-6. **Bill.** `supplier_invoices` (INVOICE_STATUS) captures the vendor's bill against the PO — detail in 04_reference_keys_codes_and_conventions.md.
+6. **Bill.** `supplier_invoices` (INVOICE_STATUS) captures the vendor's bill against the PO — detail in reference.md.
 7. **Rebalance.** `stock_transfers` and `stock_transfer_lines` (TRANSFER_STATUS) move stock between warehouses, posting matched transfer_out/transfer_in movements so network on-hand nets while per-site positions shift.
 8. **Consume.** Outbound fulfillment posts negative-delta shipment movements to the ledger, drawing down on-hand; allocations against open orders show up as `quantity_allocated`, and available = on_hand − allocated is what remains free to promise.
 9. **Correct.** `inventory_adjustments` (ADJ_REASON) writes off damage/theft or books found stock, and `cycle_counts` (CYCLE_COUNT_STATUS) verify the book against reality, feeding adjustments and refreshing `last_counted_date`.
 
 Three disciplines carry through every one of those steps and are worth restating as a closing checklist:
 
-- **Identify products by `item_code`.** Every table here uses `item_code` (INTEGER = `products.product_id`). Never join it to a SKU string; bridge through `products` when a question is phrased in SKUs (see 04_reference_keys_codes_and_conventions.md).
-- **Decode each coded column through its own named code set.** ZONE_TYPE, SUPPLIER_STATUS, PO_STATUS, INV_TXN_TYPE, ITEM_CONDITION, INVOICE_STATUS, TRANSFER_STATUS, ADJ_REASON, and CYCLE_COUNT_STATUS are all separate sets; the integer values live only in 04_reference_keys_codes_and_conventions.md. The "received" of a PO, the "received" of a transfer, and the "reconciled" of a cycle count are different values in different sets — never carry a decode across tables.
+- **Identify products by `item_code`.** Every table here uses `item_code` (INTEGER = `products.product_id`). Never join it to a SKU string; bridge through `products` when a question is phrased in SKUs (see reference.md).
+- **Decode each coded column through its own named code set.** ZONE_TYPE, SUPPLIER_STATUS, PO_STATUS, INV_TXN_TYPE, ITEM_CONDITION, INVOICE_STATUS, TRANSFER_STATUS, ADJ_REASON, and CYCLE_COUNT_STATUS are all separate sets; the integer values live only in reference.md. The "received" of a PO, the "received" of a transfer, and the "reconciled" of a cycle count are different values in different sets — never carry a decode across tables.
 - **Trust the signed ledger for movement math.** `quantity_delta` (in both `inventory_transactions` and `inventory_adjustments`) already carries direction in its sign; sum it directly to reconcile on-hand, and it should tie back to `inventory.quantity_on_hand`.
 
-For the precise definitions behind the derived measures used above, see 04_reference_keys_codes_and_conventions.md; for the status lifecycles, 04_reference_keys_codes_and_conventions.md; for identifiers and the SKU⇄item_code bridge, 04_reference_keys_codes_and_conventions.md; for code values, 04_reference_keys_codes_and_conventions.md; and for supplier and carrier billing, 04_reference_keys_codes_and_conventions.md.
+For the precise definitions behind the derived measures used above, see reference.md; for the status lifecycles, reference.md; for identifiers and the SKU⇄item_code bridge, reference.md; for code values, reference.md; and for supplier and carrier billing, reference.md.
