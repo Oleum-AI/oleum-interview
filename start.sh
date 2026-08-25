@@ -1,4 +1,4 @@
-# !/usr/bin/env bash
+#!/usr/bin/env bash
 # ./start.sh ["your question here"]   (no question -> prompts you)
 # Builds the database and points the agent at it via DB_PATH.
 set -euo pipefail
