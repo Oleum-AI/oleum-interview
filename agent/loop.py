@@ -8,6 +8,13 @@ console = Console()
 
 MAX_PREVIEW_CHARS = 500
 
+# Handlers for "action" tools: name -> fn(arguments: dict) -> str (the tool output).
+# To add a new tool: declare it in agent/prompts/tools.py and register a handler here.
+# submit_answer is handled separately below because it's terminal (ends the loop).
+TOOL_HANDLERS = {
+    "run_sql": lambda args: run_sql(args.get("query", "")),
+}
+
 
 def _rule():
     console.rule(style="grey37")
@@ -46,22 +53,26 @@ def run_agent(question: str, model=None, verbose=True) -> dict:
         final = None
         outputs = []
         for tc in turn["tool_calls"]:
-            if tc["name"] == "run_sql":
-                query = tc["arguments"].get("query", "")
-                if verbose:
-                    _rule()
-                    console.print(f"[bold cyan][TOOL CALL: run_sql][/bold cyan]")
-                    console.print(f"[cyan]  - {query}[/cyan]")
-                result = run_sql(query)
-                if verbose:
-                    console.print(f"[green]  - result:[/green] {_preview(result)}")
-                outputs.append({"type": "function_call_output", "call_id": tc["call_id"], "output": result})
-            elif tc["name"] == "submit_answer":
-                final = tc["arguments"]
+            name = tc["name"]
+            args = tc["arguments"]
+
+            if name == "submit_answer":
+                final = args
                 if verbose:
                     _rule()
                     console.print(f"[bold magenta][TOOL CALL: submit_answer][/bold magenta]")
                 outputs.append({"type": "function_call_output", "call_id": tc["call_id"], "output": "Recorded."})
+                continue
+
+            if verbose:
+                _rule()
+                console.print(f"[bold cyan][TOOL CALL: {name}][/bold cyan]")
+                console.print(f"[cyan]  - {args}[/cyan]")
+            handler = TOOL_HANDLERS.get(name)
+            result = handler(args) if handler else f"ERROR: unknown tool '{name}'"
+            if verbose:
+                console.print(f"[green]  - result:[/green] {_preview(result)}")
+            outputs.append({"type": "function_call_output", "call_id": tc["call_id"], "output": result})
 
         if final is not None:
             return final
