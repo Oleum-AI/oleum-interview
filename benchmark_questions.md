@@ -1,11 +1,5 @@
 # Benchmark Questions
 
-How many products are in the catalog, and how many are currently active? — **600 total, 542 active**
-
-Which product category has the most products? — **Women's Clothing (68)**
-
-How many carriers are active? — **9**
-
 What is our order fill rate? — **77.57%**
 
 How many active enterprise customers do we have? — **265**
