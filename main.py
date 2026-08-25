@@ -36,22 +36,16 @@ def answer_once(question: str):
 
 
 def main():
-    # An optional first question can come from the command line; after that we
-    # keep prompting so the session stays open until the user exits.
-    pending = " ".join(sys.argv[1:]).strip()
-    console.print("[dim]Ask a question. Ctrl-C or type 'exit' to quit.[/dim]")
-    while True:
-        try:
-            question = pending or console.input("\n[bold]Question:[/bold] ").strip()
-            pending = ""
-            if not question:
-                continue
-            if question.lower() in {"exit", "quit"}:
-                break
-            answer_once(question)
-        except (KeyboardInterrupt, EOFError):
-            break
-    console.print("\n[dim]Bye.[/dim]")
+    # Answer a single question, then stop. The question can come from the command
+    # line; if none is given, prompt for one. Each run handles exactly one question.
+    question = " ".join(sys.argv[1:]).strip()
+    try:
+        if not question:
+            question = console.input("[bold]Question:[/bold] ").strip()
+    except (KeyboardInterrupt, EOFError):
+        return
+    if question:
+        answer_once(question)
 
 
 if __name__ == "__main__":

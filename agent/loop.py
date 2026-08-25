@@ -1,6 +1,7 @@
 from rich.console import Console
 
 from agent.llm import complete
+from agent.docs_search import grep_docs
 from database.connection import run_sql
 from agent.prompts import SYSTEM_PROMPT, TOOLS
 
@@ -13,6 +14,7 @@ MAX_PREVIEW_CHARS = 500
 # submit_answer is handled separately below because it's terminal (ends the loop).
 TOOL_HANDLERS = {
     "run_sql": lambda args: run_sql(args.get("query", "")),
+    "grep_docs": lambda args: grep_docs(args.get("pattern", ""), args.get("context", 2)),
 }
 
 

@@ -12,6 +12,23 @@ RUN_SQL_TOOL = {
     },
 }
 
+GREP_DOCS_TOOL = {
+    "name": "grep_docs",
+    "description": (
+        "Search the docs/ reference material with a case-insensitive regex. Returns matching "
+        "lines as file:line with a little surrounding context — not whole files. Use this to "
+        "locate code meanings, conventions, and definitions instead of reading entire guides."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string", "description": "Case-insensitive regex to search for."},
+            "context": {"type": "integer", "description": "Lines of context on each side (default 2)."},
+        },
+        "required": ["pattern"],
+    },
+}
+
 SUBMIT_ANSWER_TOOL = {
     "name": "submit_answer",
     "description": "Return your final answer. Call this exactly once, when you are confident.",
@@ -25,4 +42,4 @@ SUBMIT_ANSWER_TOOL = {
     },
 }
 
-TOOLS = [RUN_SQL_TOOL, SUBMIT_ANSWER_TOOL]
+TOOLS = [RUN_SQL_TOOL, GREP_DOCS_TOOL, SUBMIT_ANSWER_TOOL]
