@@ -5,7 +5,13 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-if [ ! -d .venv ]; then
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "!! python3 not found on PATH. Install Python 3 (>=3.10) and re-run." >&2
+    exit 1
+fi
+
+if [ ! -f .venv/bin/activate ]; then
+    rm -rf .venv
     python3 -m venv .venv
 fi
 source .venv/bin/activate
