@@ -4,7 +4,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-if [ ! -d .venv ]; then
+if [ ! -f .venv/bin/activate ]; then
+    rm -rf .venv
     python3 -m venv .venv
 fi
 source .venv/bin/activate
