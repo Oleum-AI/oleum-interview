@@ -1414,8 +1414,9 @@ The state of a stored-value gift card, tracking whether it can still be spent.
 
 **Used by:** `gift_cards.status_code`.
 
-**Note:** `active (1)` is the only state where `current_balance` is expected to be
-spendable; `redeemed (2)`, `expired (3)`, and `void (4)` are non-spendable terminals.
+**Note:** `active (1)` and `redeemed (2)` both carry a spendable `current_balance`
+(a `redeemed` card has been spent against but still holds a positive balance);
+`expired (3)` and `void (4)` are non-spendable terminals with a zero balance.
 
 #### Code: GIFTCARD_TXN_TYPE
 
@@ -2116,11 +2117,11 @@ A gift card moves through these states (label terms):
 - `expired` — passed its validity window without being fully used.
 - `void` — cancelled/invalidated (for example, issued in error or reversed).
 
-**Meaning and "complete."** `active` is the only state in which a card can be
-used to pay. `redeemed`, `expired`, and `void` are terminal end states, each with
-a different reason (spent, lapsed, cancelled). `current_balance` vs
-`initial_balance` tells you how much of the card has been consumed; a `redeemed`
-card still has a positive `current_balance` (part of the loaded value remains unspent).
+**Meaning and "complete."** `active` and `redeemed` cards can still be used to
+pay — a `redeemed` card is one that has been spent against but still holds a
+positive balance. `expired` and `void` are non-spendable terminal states (zero
+balance), each with a different reason (lapsed, cancelled). `current_balance` vs
+`initial_balance` tells you how much of the card has been consumed.
 
 **The transaction ledger.** `gift_card_transactions` is an append-only ledger of
 every movement on a card, typed by GIFTCARD_TXN_TYPE:

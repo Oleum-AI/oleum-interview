@@ -831,7 +831,7 @@ carry a payment; the payment amount equals the order total.
 | `method_code` | Tender type. Decodes against the **PAYMENT_METHOD** code set. |
 | `status_code` | Payment state. Decodes against the **PAYMENT_STATUS** code set. |
 | `amount` | USD amount, equal to the order total at payment time. |
-| `paid_date` | ISO date funds moved; present for authorized, captured, and refunded payments, NULL when no funds moved (a voided or failed payment). |
+| `paid_date` | ISO date funds moved; always present on captured and refunded payments (and on most authorized ones), NULL for voided/failed payments and for authorized payments that were never collected (e.g. on cancelled orders). |
 
 ### Payment method
 
@@ -880,10 +880,11 @@ orders carry a refunded payment; the normal completed path is captured. This
 means you can approximate "money actually collected" as the sum of captured
 payment amounts, and "money returned" as the sum of refunded payment amounts —
 but always over reporting-eligible orders. A payment's `paid_date` is populated
-whenever funds moved — authorized, captured, or refunded — and is NULL only for
-voided or failed payments, so `paid_date IS NOT NULL` overcounts "collected".
-Filter explicitly on the captured label of PAYMENT_STATUS for money actually
-collected.
+once funds have moved — always on captured and refunded rows, and on most
+authorized ones — but is NULL for voided/failed payments and for authorized
+payments that were never collected (e.g. on cancelled orders), so
+`paid_date IS NOT NULL` is not a clean proxy for "collected". Filter explicitly
+on the captured label of PAYMENT_STATUS for money actually collected.
 
 Tender mix by segment is a routine ask and shows how business/government buyers
 lean on net_terms and wire:
@@ -1030,12 +1031,12 @@ its full or remaining balance; a **redeemed** card has been (largely) spent down
 gift-card status, nothing else.
 
 ```sql
--- Outstanding gift-card liability (active cards still holding a balance)
+-- Outstanding gift-card liability (any card still holding a balance:
+-- active or partially-spent redeemed; expired/void cards are zero)
 SELECT ROUND(SUM(current_balance), 2) AS outstanding_balance,
-       COUNT(*) AS active_cards
+       COUNT(*) AS cards
 FROM gift_cards
-WHERE status_code = :active            -- GIFTCARD_STATUS 'active'; reference.md
-  AND current_balance > 0;
+WHERE current_balance > 0;
 ```
 
 Because `customer_id` is nullable, a report of "gift-card balance by customer"
@@ -1088,8 +1089,9 @@ against a card move it. Reconciling the ledger against the stored
 `current_balance` is a data-quality check rather than a routine report, and it is
 better handled as an approximate balance movement than an exact tie-out — see
 `reference.md` for what to expect. The routine reporting
-uses of these tables are (a) outstanding liability from active balances and (b)
-redemption volume by transaction (the query above), both of which read cleanly.
+uses of these tables are (a) outstanding liability from cards still holding a
+balance (active or partially-spent redeemed) and (b) redemption volume by
+transaction (the query above), both of which read cleanly.
 
 Because `gift_card_transactions.order_id` is nullable — and in fact NULL on every
 row here — do not join this ledger to `orders` or filter `order_id IS NOT NULL`
@@ -1173,10 +1175,12 @@ recurring source of silently dropped rows. The ones to watch:
   join or dedupe key.
 - **`gift_cards.customer_id`** — NULL for unowned cards; inner-joining to
   `customers` silently drops them.
-- **`gift_card_transactions.order_id`** — NULL for issue/reload rows; filter
-  `IS NOT NULL` for order-linked activity only.
-- **`payments.paid_date`** — NULL when funds were never captured (voided/failed
-  payments).
+- **`gift_card_transactions.order_id`** — NULL on every row in this dataset; the
+  ledger is not linked to orders, so do not join it to `orders` or filter
+  `IS NOT NULL` (returns nothing).
+- **`payments.paid_date`** — NULL for voided/failed payments and for authorized
+  payments never collected (e.g. cancelled orders); present on captured and
+  refunded rows.
 - **`product_categories.parent_category_id`** — NULL marks a top-level category;
   it is the recursion/rollup terminator, not missing data.
 
