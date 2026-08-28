@@ -758,10 +758,10 @@ When stock physically arrives against a replenishment order, it is booked as a r
 | `received_ts` | Timestamp the goods were received (ISO-8601). |
 | `reference` | A free-text receiving reference (packing slip / ASN number). |
 
-A single PO can generate more than one receipt over time (that is exactly how partial receipts accumulate): each delivery against the PO is its own `receipts` row, and their `receipt_lines` sum up to the PO's `qty_received`.
+In this dataset a fully-received PO has exactly one receipt — the relationship is 1:1: that single `receipts` row's `receipt_lines` sum up to the PO's `qty_received`. A partially-received PO carries its received quantities on `replenishment_lines.qty_received` but has no `receipts` (or `receipt_lines`) rows at all, so there is nothing that accumulates across multiple receipts.
 
 ```sql
--- Receiving history for a PO
+-- The receipt booked against a PO (one row for a fully-received PO; none for a partial)
 SELECT r.receipt_id, r.received_ts, r.reference,
        SUM(rlx.qty_received) AS units_this_receipt
 FROM receipts r
@@ -1079,7 +1079,7 @@ The tables in this domain describe one continuous flow, and most substantive que
 1. **Source.** `suppliers` and `supplier_products` define who we buy from, at what cost, with what lead time, and which supplier is preferred per `item_code`.
 2. **Trigger.** `inventory` positions drop below `reorder_point` (`quantity_on_hand < reorder_point`), which calls for a purchase of `reorder_qty` units from the preferred supplier.
 3. **Order.** A `replenishment_orders` header with `replenishment_lines` records the purchase; its status runs through PO_STATUS toward the received terminal.
-4. **Receive.** `receipts` and `receipt_lines` book the physical arrival (with an ITEM_CONDITION on each line); partial deliveries accumulate as multiple receipts and show as a partial PO status.
+4. **Receive.** `receipts` and `receipt_lines` book the physical arrival (with an ITEM_CONDITION on each line); a fully-received PO gets exactly one receipt (1:1), while a partial PO carries received quantities on its `replenishment_lines` but has no receipts row.
 5. **Post.** Every receipt posts a positive-delta receipt movement to `inventory_transactions`, which raises `inventory.quantity_on_hand`.
 6. **Bill.** `supplier_invoices` (INVOICE_STATUS) captures the vendor's bill against the PO — detail in reference.md.
 7. **Rebalance.** `stock_transfers` and `stock_transfer_lines` (TRANSFER_STATUS) move stock between warehouses, posting matched transfer_out/transfer_in movements so network on-hand nets while per-site positions shift.

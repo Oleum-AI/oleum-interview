@@ -207,7 +207,8 @@ role. Use it to find the right table quickly; the topic docs go deeper.
   (warehouse, item).
 - **inventory_lots** — lot-level stock with received and (optional) expiry dates.
 - **inventory_transactions** — the movement ledger; every receipt, shipment,
-  transfer, adjustment, and return-restock posts here.
+  transfer, and adjustment posts here. (`return_restock` is a defined type but is
+  not posted in this dataset.)
 - **replenishment_orders** — purchase orders to suppliers to restock a warehouse.
 - **replenishment_lines** — the line items on a replenishment order, with ordered
   and received quantities.
@@ -639,8 +640,8 @@ be prepared for missing parents.
 - `warehouse_id → warehouses(warehouse_id)`
 - `item_code → products(product_id)` *(logical, INTEGER match)*.
 - `txn_type_code` decodes via INV_TXN_TYPE. The movement ledger: receipts,
-  shipments, transfers, adjustments, and return-restocks all post signed
-  `quantity_delta` rows here. `reference_type` / `reference_id` point loosely at
+  shipments, transfers, and adjustments post signed `quantity_delta` rows here.
+  (`return_restock` is a defined type but is never posted in this dataset.) `reference_type` / `reference_id` point loosely at
   the originating document (for example a `receipt_id` or `adjustment_id`) but are
   not a declared foreign key.
 
@@ -894,9 +895,10 @@ WHERE o.order_id = 1001;
 ```
 
 **orders → payments** and **orders → order_promotions → promotions** are plain
-`order_id` joins. Remember that an order may have several payments (for example
-an authorization and a later capture, or a partial refund) and several
-promotions, so aggregate before joining if you need one row per order.
+`order_id` joins. A non-draft order has exactly one payment row (its `amount`
+equals the `order_total`; there is no split tender in this dataset), but it may
+have several promotions, so aggregate promotions before joining if you need one
+row per order.
 
 ---
 
@@ -1365,8 +1367,8 @@ categorize the promotion.
 
 #### Code: PAYMENT_METHOD
 
-How a payment against an order was tendered. A single order can have multiple payment
-rows (e.g. a gift-card partial plus a card).
+How a payment against an order was tendered. Each non-draft order has a single
+payment row (one tender; there is no split tender in this dataset).
 
 | Value | Label | Meaning |
 |---|---|---|
@@ -1406,7 +1408,7 @@ The state of a stored-value gift card, tracking whether it can still be spent.
 | Value | Label | Meaning |
 |---|---|---|
 | 1 | active | The card is live and has a spendable balance. |
-| 2 | redeemed | The card has been fully spent down (balance exhausted). |
+| 2 | redeemed | The card has been partially spent down but still carries a positive remaining balance. |
 | 3 | expired | The card has passed its validity period and can no longer be used. |
 | 4 | void | The card has been cancelled/invalidated administratively (e.g. issued in error or fraud). |
 
@@ -1423,15 +1425,15 @@ The kind of movement recorded on a gift card's transaction ledger
 | Value | Label | Meaning |
 |---|---|---|
 | 1 | issue | Initial issuance of the card — establishes the opening balance. |
-| 2 | redeem | Value spent from the card, typically applied against an order (`order_id` is populated). Reduces the balance. |
+| 2 | redeem | Value spent down from the card, reducing its balance. `order_id` is NULL on these rows in this dataset — a redeem is not linked to a specific order. |
 | 3 | reload | Additional value added to an existing card. Increases the balance. |
 | 4 | refund | Value credited back onto the card, e.g. from a returned order. Increases the balance. |
 
 **Used by:** `gift_card_transactions.txn_type_code`.
 
-**Note:** `issue`, `reload`, and `refund` add value; `redeem` removes value. A
-`redeem` row will normally carry the `order_id` it paid for; `issue`/`reload` rows may
-have a null `order_id`.
+**Note:** `issue`, `reload`, and `refund` add value; `redeem` removes value.
+`order_id` is NULL on every `gift_card_transactions` row in this dataset (all
+types), so a `redeem` is not tied to a specific order via `order_id`.
 
 ---
 
@@ -2073,11 +2075,10 @@ A payment attached to an order moves through these states (label terms):
 resolved when it is `captured` (money in), `refunded` (money returned), `voided`
 (hold released), or `failed` (no money). For "revenue actually collected"
 questions, `captured` is the relevant state; `authorized` is only a hold and
-should not be counted as collected. An order can have more than one payment row
-(for example a split tender or a re-attempt after a `failed` try), so sum with
-care and be explicit about which statuses you include. `paid_date` is populated
-when the payment reached a settled state; it may be NULL for an
-`authorized`/`voided`/`failed` row.
+should not be counted as collected. Each non-draft order has exactly one payment
+row (no split tender in this dataset), and its `amount` equals the `order_total`,
+so be explicit about which statuses you include. `paid_date` is populated once
+funds have moved; it may be NULL for an `authorized`/`voided`/`failed` row.
 
 **Typical transitions.** `authorized` → `captured` → `refunded` is the common
 path for a completed-then-returned sale; `authorized` → `voided` for an order
@@ -2096,8 +2097,8 @@ GROUP BY order_id;
 ```
 
 Two cautions: do not treat `authorized` as collected money (it is only a hold),
-and remember that a single order can carry several payment rows, so aggregate
-rather than assuming one row per order. Whether a refund reduces recognized
+and note that each non-draft order carries exactly one payment row (no split
+tender in this dataset), so no per-order aggregation of payments is needed. Whether a refund reduces recognized
 revenue is a definitional choice — follow the **Metrics and Definitions** section so the
 number matches the company standard.
 
@@ -2111,7 +2112,7 @@ number matches the company standard.
 A gift card moves through these states (label terms):
 
 - `active` — issued and usable; `current_balance` may be spent.
-- `redeemed` — fully spent; the balance has been drawn down (typically to zero).
+- `redeemed` — partially spent down; the card still carries a positive remaining balance.
 - `expired` — passed its validity window without being fully used.
 - `void` — cancelled/invalidated (for example, issued in error or reversed).
 
@@ -2119,15 +2120,15 @@ A gift card moves through these states (label terms):
 used to pay. `redeemed`, `expired`, and `void` are terminal end states, each with
 a different reason (spent, lapsed, cancelled). `current_balance` vs
 `initial_balance` tells you how much of the card has been consumed; a `redeemed`
-card generally has a `current_balance` at or near zero.
+card still has a positive `current_balance` (part of the loaded value remains unspent).
 
 **The transaction ledger.** `gift_card_transactions` is an append-only ledger of
 every movement on a card, typed by GIFTCARD_TXN_TYPE:
 
 - `issue` — the card was created and its initial balance loaded.
-- `redeem` — value was spent from the card (usually tied to an `order_id`, which
-  is why `gift_card_transactions.order_id` is nullable — a non-order movement
-  like an issue or reload has no order).
+- `redeem` — value was spent down from the card. `gift_card_transactions.order_id`
+  is nullable and, in this dataset, is NULL on every row — a redeem is not linked
+  to a specific order via `order_id`.
 - `reload` — additional value was added to the card.
 - `refund` — value was returned to the card (for example when an order paid by
   gift card is refunded).
@@ -2464,8 +2465,9 @@ WHERE status = :refunded;            -- RETURN_STATUS 'refunded'
   authoritative for what actually happened.
 
 See `fulfillment_and_shipping.md` for the returns flow end to end and
-`warehouse_and_inventory.md` for how a `restock` disposition posts back to
-inventory.
+`warehouse_and_inventory.md` for how a `restock` disposition relates to
+inventory. Note that in this dataset a restocked return does not post a
+`return_restock` inventory movement — no such row is generated.
 
 ---
 
@@ -2789,8 +2791,9 @@ advancing on its own code set.
 4. The customer returns an item. A `returns` row runs `requested` → `authorized`
    → `received` → `refunded` (RETURN_STATUS); a `payments` `refunded` row and/or
    a gift-card `refund` transaction reverse the money; the order header may move
-   to ORDER_STATUS `returned`; and a `restock` disposition posts a
-   `return_restock` movement back into inventory.
+   to ORDER_STATUS `returned`; and a `restock` disposition marks the goods as
+   sellable again (in this dataset it does not post a `return_restock` inventory
+   movement — no such row is generated).
 
 5. Meanwhile, supply keeps flowing. A `replenishment_orders` PO runs `open` →
    `partial` → `received` (PO_STATUS) with `receipts` posting stock in; a
@@ -4483,9 +4486,10 @@ reportable population.
 
 **Filters.** Exclude internal-test orders (their payments are test captures);
 exclude cancelled orders. Captured amount uses PAYMENT_STATUS `captured`;
-refunds/voids/fails are separate states in the same set. Because an order can
-have several payment rows, sum `payments.amount` at the payment grain — do not
-join payments to order lines.
+refunds/voids/fails are separate states in the same set. Because there is one
+payment row per non-draft order (its `amount` equals the `order_total`), sum
+`payments.amount` at the payment grain — do not join payments to order lines
+(which would fan out).
 
 **Worked query — captured amount vs recognized revenue:**
 
@@ -4506,8 +4510,8 @@ JOIN reportable r ON r.order_id = p.order_id;
 ```
 
 Captured materially below recognized revenue is a collections or authorization
-gap worth investigating; captured *above* it usually signals refunds netting or
-multiple partial captures — reconcile against the refund column.
+gap worth investigating; captured *above* it usually signals refunds netting —
+reconcile against the refund column.
 
 ---
 
@@ -4907,7 +4911,7 @@ order; the payment `amount` equals the `order_total`).
 | `method_code` | Tender type. Decodes against the **PAYMENT_METHOD** code set. |
 | `status_code` | Payment state. Decodes against the **PAYMENT_STATUS** code set. |
 | `amount` | USD amount = order total at payment time. |
-| `paid_date` | ISO date funds were captured; NULL when not captured. |
+| `paid_date` | ISO date funds moved; present on captured/refunded rows (and most authorized), NULL for voided/failed. |
 
 `method_code` decodes against **PAYMENT_METHOD** (credit_card, debit_card,
 paypal, gift_card, net_terms, wire). `net_terms` and `wire` skew toward business
@@ -4924,10 +4928,13 @@ independent revenue stream — they are the same money seen from the tender side
 Use payments when the question is about *tender* or *cash timing*; use orders /
 order lines when the question is about *revenue*.
 
-**Cash-collection timing.** `paid_date` is when funds were captured; comparing it
+**Cash-collection timing.** `paid_date` is when funds moved; comparing it
 to the order date gives days-to-collect, which differs sharply by tender
-(card/paypal capture fast, net_terms and wire slower). Only captured payments
-have a `paid_date`, so restrict to them:
+(card/paypal capture fast, net_terms and wire slower). `paid_date` is populated
+once funds have moved — it is present on every captured and refunded row and on
+most authorized rows, and is NULL only for voided/failed. To isolate collected
+payments, filter on the `captured` status label rather than on `paid_date`
+presence:
 
 ```sql
 -- Average days from order to payment capture, by tender
@@ -5015,14 +5022,19 @@ its balances live in `gift_cards`; the activity ledger is
 here is how they fit the money picture.
 
 - `gift_cards.initial_balance` — USD loaded at issue.
-- `gift_cards.current_balance` — USD remaining now. The sum of remaining balances
-  on cards in the **active** state of the GIFTCARD_STATUS code set is the
-  outstanding gift-card liability.
+- `gift_cards.current_balance` — USD remaining now. The outstanding gift-card
+  liability is the sum of remaining balances on all cards that still hold value —
+  **active (1)** cards plus **redeemed (2)** cards, which are only partially spent
+  and still carry a positive `current_balance`. Restricting to `status_code = active`
+  silently omits the live balance still sitting on redeemed (2) cards; expired (3)
+  and void (4) cards have a zero balance and so do not contribute either way.
 - `gift_card_transactions.amount` with `txn_type_code` (GIFTCARD_TXN_TYPE:
   issue, redeem, reload, refund) — the movement ledger behind the balance.
 
-A gift card used to pay for an order appears as a **redeem** transaction (with
-`order_id` populated) and may also appear as a `gift_card` tender in `payments`.
+A gift card being spent down appears as a **redeem** transaction (the card's
+balance is reduced; `order_id` is NULL on `gift_card_transactions` in this
+dataset, so a redeem is not linked to a specific order), and the card's use as
+tender may also appear as a `gift_card` payment in `payments`.
 The authoritative record of card value movement is `gift_card_transactions`; the
 authoritative current balance is `gift_cards.current_balance`.
 
@@ -5030,7 +5042,7 @@ authoritative current balance is `gift_cards.current_balance`.
 -- Outstanding gift-card liability and lifetime redemptions
 SELECT
   (SELECT ROUND(SUM(current_balance), 2) FROM gift_cards
-     WHERE status_code = :active) AS outstanding_liability,   -- GIFTCARD_STATUS 'active'
+     WHERE current_balance > 0) AS outstanding_liability,    -- live balance on active + partially-spent redeemed cards
   (SELECT ROUND(SUM(amount), 2) FROM gift_card_transactions
      WHERE txn_type_code = :redeem) AS lifetime_redeemed;      -- GIFTCARD_TXN_TYPE 'redeem'
 ```
@@ -5043,10 +5055,11 @@ Two more distinctions on gift-card money. First, gift-card issuance is a
 *liability*, not revenue — selling a $100 card creates a $100 obligation, and
 revenue is only recognized as the card is redeemed against orders. So do not add
 `issue` transaction amounts to revenue; the revenue is captured on the orders the
-card pays for. Second, redemptions applied to orders (redeem rows with a populated
-`order_id`) may overlap with the `gift_card` tender on `payments` for the same
-orders — they describe the same money from the ledger side and the order side, so
-do not sum both as if they were separate cash.
+card pays for. Second, redeem rows (the card being spent down) may overlap with
+the `gift_card` tender on `payments` — both describe the same money from the
+ledger side and the payment side, so do not sum both as if they were separate
+cash. Note that `gift_card_transactions.order_id` is NULL in this dataset, so
+redeems cannot be joined to specific orders directly.
 
 ```sql
 -- Gift-card value movement by transaction type
@@ -5460,7 +5473,7 @@ patterns and the mistakes they prevent.
 | Order value | `orders.order_total` | Sum of line totals; not net of promotions. |
 | Order promo discount | `order_promotions.discount_amount` | Separate; not in `order_total`. |
 | Customer payment | `payments.amount` (`status_code`, `paid_date`) | Mirrors order total; tender view. |
-| Gift-card balance | `gift_cards.current_balance` / `initial_balance` | Liability = active balances. |
+| Gift-card balance | `gift_cards.current_balance` / `initial_balance` | Liability = balances on cards still holding value (active + partially-spent redeemed). |
 | Gift-card movement | `gift_card_transactions.amount` (`txn_type_code`) | Redeem/issue/reload/refund. |
 | Supplier unit cost | `supplier_products.unit_cost` (`is_preferred`) | `item_code` side. |
 | Purchase unit cost | `replenishment_lines.unit_cost` | Captured at PO time. |

@@ -831,7 +831,7 @@ carry a payment; the payment amount equals the order total.
 | `method_code` | Tender type. Decodes against the **PAYMENT_METHOD** code set. |
 | `status_code` | Payment state. Decodes against the **PAYMENT_STATUS** code set. |
 | `amount` | USD amount, equal to the order total at payment time. |
-| `paid_date` | ISO date funds were captured; NULL when not captured (e.g. a voided or failed payment). |
+| `paid_date` | ISO date funds moved; present for authorized, captured, and refunded payments, NULL when no funds moved (a voided or failed payment). |
 
 ### Payment method
 
@@ -879,10 +879,11 @@ payments that were authorized, voided, or failed (never captured); returned
 orders carry a refunded payment; the normal completed path is captured. This
 means you can approximate "money actually collected" as the sum of captured
 payment amounts, and "money returned" as the sum of refunded payment amounts —
-but always over reporting-eligible orders. Because a payment's `paid_date` is
-NULL unless funds were captured, `paid_date IS NOT NULL` is a quick proxy for
-"collected", though filtering explicitly on the captured label of PAYMENT_STATUS
-is clearer.
+but always over reporting-eligible orders. A payment's `paid_date` is populated
+whenever funds moved — authorized, captured, or refunded — and is NULL only for
+voided or failed payments, so `paid_date IS NOT NULL` overcounts "collected".
+Filter explicitly on the captured label of PAYMENT_STATUS for money actually
+collected.
 
 Tender mix by segment is a routine ask and shows how business/government buyers
 lean on net_terms and wire:
@@ -1051,25 +1052,27 @@ unless that is intended.
 |---|---|
 | `gc_txn_id` | Primary key. |
 | `gift_card_id` | The card this transaction hit. |
-| `order_id` | The order it was applied to, if any; **nullable** (issuance and reloads have no order). |
+| `order_id` | **Nullable**, and NULL for every transaction in this dataset — the ledger is not linked to specific orders. |
 | `txn_type_code` | Kind of transaction. Decodes against the **GIFTCARD_TXN_TYPE** code set. |
 | `amount` | USD amount of the transaction. |
 | `txn_ts` | ISO timestamp of the transaction. |
 
 `txn_type_code` decodes against the **GIFTCARD_TXN_TYPE** code set with labels
 **issue**, **redeem**, **reload**, and **refund**. An **issue** row records the
-original loading of the card (no `order_id`); a **redeem** row records the card
-being spent on an order (`order_id` populated); **reload** adds value; **refund**
-returns value to the card. This is the audit trail behind `current_balance`.
+original loading of the card; a **redeem** row records the card being spent down
+(reducing its balance); **reload** adds value; **refund** returns value to the
+card. In this dataset `order_id` is NULL on every transaction — the ledger is not
+linked to a specific order — so identify activity by `txn_type_code` and measure
+it by the transaction `amount` and `txn_ts`. This is the audit trail behind
+`current_balance`.
 
 ```sql
--- Gift-card redemptions applied to orders, by month
+-- Gift-card redemption volume by month
 SELECT substr(txn_ts, 1, 7) AS ym,
        ROUND(SUM(amount), 2) AS redeemed_amount,
        COUNT(*) AS redemptions
 FROM gift_card_transactions
 WHERE txn_type_code = :redeem          -- GIFTCARD_TXN_TYPE 'redeem'; reference.md
-  AND order_id IS NOT NULL
 GROUP BY ym
 ORDER BY ym;
 ```
@@ -1086,12 +1089,12 @@ against a card move it. Reconciling the ledger against the stored
 better handled as an approximate balance movement than an exact tie-out — see
 `reference.md` for what to expect. The routine reporting
 uses of these tables are (a) outstanding liability from active balances and (b)
-redemption volume applied to orders (the query above), both of which read cleanly.
+redemption volume by transaction (the query above), both of which read cleanly.
 
-Because `gift_card_transactions.order_id` is nullable, be explicit about intent:
-issuance and reload rows carry no order and will drop out of any inner join to
-`orders`. Filter `order_id IS NOT NULL` when you want only order-linked activity
-(redemptions), and leave it off when you want full card history.
+Because `gift_card_transactions.order_id` is nullable — and in fact NULL on every
+row here — do not join this ledger to `orders` or filter `order_id IS NOT NULL`
+expecting order-linked rows; that returns nothing. Identify redemptions by
+`txn_type_code = redeem` and measure them by `amount` and `txn_ts`.
 
 ---
 
