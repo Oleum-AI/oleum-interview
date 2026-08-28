@@ -36,6 +36,10 @@ N_CYCLE_COUNTS = 3000
 TEST_ORDER_RATE = 0.03          # G3: priority_code == 7
 BELOW_ROP_RATE = 0.18           # inventory rows below reorder point
 LATE_NOISE_HI = 4               # delivered-late spread (~25% late vs promised)
+SPLIT_SHIP_RATE = 0.12          # fraction of multi-line shipped orders split across shipments
+MULTIPAY_RATE = 0.12            # fraction of non-draft orders with a failed attempt before capture
+MULTI_RECEIPT_RATE = 0.5        # fraction of multi-line received/partial POs delivered over >1 receipt
+GC_PARTIAL_ACTIVE_RATE = 0.4    # fraction of active gift cards partially spent (balance < initial)
 
 
 # ---- helpers ----------------------------------------------------------------
@@ -363,24 +367,28 @@ def build():
                                       random.randint(3, 45), 1 if i == 0 else 0))
     rows["supplier_products"] = supplier_products
 
-    # -- gift cards + transactions --------------------------------------------
+    # -- gift cards -----------------------------------------------------------
+    # Balances follow GIFTCARD_STATUS: active(1) is live (some partially spent);
+    # redeemed(2) is fully spent down to zero; expired(3)/void(4) are non-spendable
+    # zero-balance terminals. The transaction ledger is built after orders exist so
+    # that each redeem can be tied to the order it paid for (order_id populated).
     gift_cards = []
-    gc_txns = []
-    gtid = 0
+    gc_redeem_specs = []   # (gift_card_id, issued_date, redeemed_amount) for cards that were spent
     for gcid in range(1, N_GIFT_CARDS + 1):
         init = float(random.choice([25, 50, 75, 100, 150, 200]))
         status = weighted([(1, 6), (2, 3), (3, 1), (4, 1)])
-        bal = init if status == 1 else money(init * random.uniform(0, 0.6)) if status == 2 else 0.0
+        if status == 1:
+            bal = money(init * random.uniform(0.3, 0.9)) if random.random() < GC_PARTIAL_ACTIVE_RATE else init
+        else:
+            bal = 0.0   # redeemed(2)=fully spent, expired(3)/void(4)=zero
         issued = random_date(date(2022, 1, 1), TODAY)
         owner = random.randint(1, N_CUSTOMERS) if random.random() < 0.7 else None
         gift_cards.append((gcid, f"GC{gcid:06d}", init, bal, status, iso(issued), owner))
-        gtid += 1
-        gc_txns.append((gtid, gcid, None, 1, init, ts(issued)))   # issue
-        if status in (2,) or bal < init:
-            gtid += 1
-            gc_txns.append((gtid, gcid, None, 2, money(init - bal), ts(random_date(issued, TODAY))))
+        # A redeem records spend: active cards below their initial balance, and
+        # every fully-spent redeemed(2) card. Expired/void lapsed without spend.
+        if status == 2 or (status == 1 and bal < init):
+            gc_redeem_specs.append((gcid, issued, money(init - bal)))
     rows["gift_cards"] = gift_cards
-    rows["gift_card_transactions"] = gc_txns
 
     # -- orders + lines + status history + payments + order_promotions --------
     orders = []            # list of dict (mutable promised_date)
@@ -445,10 +453,16 @@ def build():
             order_status_history.append((hid, oid, s, ts(cur), None))
             cur = min(cur + timedelta(days=random.randint(0, 4)), TODAY)
 
-        # payment (non-draft)
+        # payment (non-draft). An order can carry more than one payment row: some
+        # orders see a failed attempt before the real one settles. Every row's
+        # amount equals the order total (no split tender), so summing by order
+        # over the captured/refunded statuses still recovers order revenue.
         if status != 1:
-            pmt_id += 1
             method = weighted([(1, 45), (2, 22), (3, 15), (4, 8), (5, 6), (6, 4)])
+            if random.random() < MULTIPAY_RATE:
+                pmt_id += 1
+                payments.append((pmt_id, oid, method, 5, total, None))   # failed attempt, no funds moved
+            pmt_id += 1
             if status == 5:
                 pstat, paid = weighted([(4, 6), (1, 2), (5, 2)]), None
             elif status == 6:
@@ -469,6 +483,24 @@ def build():
     rows["payments"] = payments
     rows["order_promotions"] = order_promotions
 
+    # -- gift card transactions (ledger) --------------------------------------
+    # Issue rows have no order; redeem rows are applied to a real order, so
+    # gift_card_transactions.order_id is populated on redemptions and NULL on issues.
+    nondraft_oids = [o["order_id"] for o in orders if o["status"] != 1]
+    gc_txns = []
+    gtid = 0
+    gc_redeem_lookup = {gcid: (issued, amt) for (gcid, issued, amt) in gc_redeem_specs}
+    for (gcid, code, init, bal, status, issued_iso, owner) in gift_cards:
+        gtid += 1
+        issued_dt = date.fromisoformat(issued_iso)
+        gc_txns.append((gtid, gcid, None, 1, init, ts(issued_dt)))   # issue: no order
+        if gcid in gc_redeem_lookup:
+            _issued, amt = gc_redeem_lookup[gcid]
+            gtid += 1
+            oid_link = random.choice(nondraft_oids)
+            gc_txns.append((gtid, gcid, oid_link, 2, amt, ts(random_date(issued_dt, TODAY))))
+    rows["gift_card_transactions"] = gc_txns
+
     # -- shipments and everything hanging off them ----------------------------
     shipments = []
     packages = []
@@ -486,98 +518,114 @@ def build():
     exc_id = 0
     pick_id = 0
     pl_id = 0
+    order_ship_wh = {}   # order_id -> origin warehouse of its first shipment (for restock postings)
 
     for o in orders:
         if o["status"] not in (3, 4, 6):
             continue
-        ship_id += 1
-        wh = random.choice(active_warehouses)
-        carrier = random.choice(carrier_ids)
-        svc_id, svc_lvl, transit_est = random.choice(carrier_services[carrier])
-        ship_dt = o["order_date"] + timedelta(days=random.randint(0, 2))
-        promised_dt = ship_dt + timedelta(days=transit_est + random.randint(1, 3))
-        o["promised"] = iso(promised_dt)
-        weight = round(sum(product_weight[pid] * qty for (_, pid, qty) in o["lines"]), 2)
-        tracking = f"1Z{carrier:02d}{ship_id:08d}"
 
-        if o["status"] in (4, 6):
-            ship_status = weighted([(5, 92), (6, 6), (7, 2)])
-            if ship_status == 5:
-                actual = max(1, transit_est + random.randint(-3, LATE_NOISE_HI))
-                delivered_dt = ship_dt + timedelta(days=actual)
-                delivered = iso(min(delivered_dt, TODAY))
-            elif ship_status == 6:
-                delivered_dt = ship_dt + timedelta(days=transit_est + random.randint(2, 10))
-                delivered = iso(min(delivered_dt, TODAY))
-                ship_status = 5   # exception then delivered
-            else:
-                delivered = None   # lost
-        else:  # confirmed / in transit
-            ship_status = weighted([(2, 2), (3, 6), (4, 2)])
-            delivered = None
+        # Split shipments: a 3PL can fulfil one order in several shipments (e.g. a
+        # backordered line follows later, or lines ship from two warehouses). We
+        # split by line so every order line still ships complete in exactly one
+        # shipment. Single-line orders never split.
+        lines = o["lines"]
+        if len(lines) >= 2 and random.random() < SPLIT_SHIP_RATE:
+            cut = random.randint(1, len(lines) - 1)
+            line_groups = [lines[:cut], lines[cut:]]
+        else:
+            line_groups = [lines]
 
-        shipments.append((ship_id, o["order_id"], carrier, svc_id, wh, ship_status,
-                          iso(ship_dt), delivered, iso(promised_dt), tracking, weight))
+        for grp_idx, grp_lines in enumerate(line_groups):
+            ship_id += 1
+            wh = random.choice(active_warehouses)
+            carrier = random.choice(carrier_ids)
+            svc_id, svc_lvl, transit_est = random.choice(carrier_services[carrier])
+            ship_dt = min(o["order_date"] + timedelta(days=random.randint(0, 2)), TODAY)
+            promised_dt = ship_dt + timedelta(days=transit_est + random.randint(1, 3))
+            if grp_idx == 0:
+                o["promised"] = iso(promised_dt)
+                order_ship_wh[o["order_id"]] = wh
+            weight = round(sum(product_weight[pid] * qty for (_, pid, qty) in grp_lines), 2)
+            tracking = f"1Z{carrier:02d}{ship_id:08d}"
 
-        # packages (1-2) + shipment_items mapped from order lines
-        n_pkg = 1 if len(o["lines"]) <= 2 else random.randint(1, 2)
-        pkg_ids = []
-        for _ in range(n_pkg):
-            pkg_id += 1
-            ptype = weighted([(1, 6), (2, 2), (3, 1), (5, 1)])
-            pw = round(weight / n_pkg, 2)
-            packages.append((pkg_id, ship_id, ptype, pw,
-                             round(random.uniform(10, 80), 1), round(random.uniform(10, 60), 1),
-                             round(random.uniform(5, 50), 1)))
-            pkg_ids.append(pkg_id)
-        for (line_id, pid, qty) in o["lines"]:
-            si_id += 1
-            shipment_items.append((si_id, ship_id, random.choice(pkg_ids), line_id, sku_of(pid), qty))
+            if o["status"] in (4, 6):
+                ship_status = weighted([(5, 92), (6, 6), (7, 2)])
+                if ship_status == 5:
+                    actual = max(1, transit_est + random.randint(-3, LATE_NOISE_HI))
+                    delivered_dt = ship_dt + timedelta(days=actual)
+                    delivered = iso(min(delivered_dt, TODAY))
+                elif ship_status == 6:
+                    delivered_dt = ship_dt + timedelta(days=transit_est + random.randint(2, 10))
+                    delivered = iso(min(delivered_dt, TODAY))
+                    ship_status = 5   # exception then delivered
+                else:
+                    delivered = None   # lost
+            else:  # confirmed / in transit
+                ship_status = weighted([(2, 2), (3, 6), (4, 2)])
+                delivered = None
 
-        # legs (1-3)
-        n_legs = random.randint(1, 3)
-        cur_ts = ship_dt
-        for seq in range(1, n_legs + 1):
-            leg_id += 1
-            a, b = random.sample(facility_ids, 2)
-            mode = weighted([(1, 6), (5, 3), (3, 1)])
-            leg_status = 3 if (delivered or seq < n_legs) else weighted([(2, 2), (3, 1)])
-            dep = ts(cur_ts)
-            cur_ts = min(cur_ts + timedelta(days=random.randint(1, 4)), TODAY)
-            arr = ts(cur_ts) if leg_status == 3 else None
-            shipment_legs.append((leg_id, ship_id, seq, mode, a, b, leg_status, dep, arr))
+            shipments.append((ship_id, o["order_id"], carrier, svc_id, wh, ship_status,
+                              iso(ship_dt), delivered, iso(promised_dt), tracking, weight))
 
-        # tracking events
-        ev_id += 1
-        tracking_events.append((ev_id, ship_id, 1, ts(ship_dt), random.choice(facility_ids), "Label created"))
-        for _ in range(random.randint(1, 3)):
+            # packages (1-2) + shipment_items mapped from this shipment's lines
+            n_pkg = 1 if len(grp_lines) <= 2 else random.randint(1, 2)
+            pkg_ids = []
+            for _ in range(n_pkg):
+                pkg_id += 1
+                ptype = weighted([(1, 6), (2, 2), (3, 1), (5, 1)])
+                pw = round(weight / n_pkg, 2)
+                packages.append((pkg_id, ship_id, ptype, pw,
+                                 round(random.uniform(10, 80), 1), round(random.uniform(10, 60), 1),
+                                 round(random.uniform(5, 50), 1)))
+                pkg_ids.append(pkg_id)
+            for (line_id, pid, qty) in grp_lines:
+                si_id += 1
+                shipment_items.append((si_id, ship_id, random.choice(pkg_ids), line_id, sku_of(pid), qty))
+
+            # legs (1-3)
+            n_legs = random.randint(1, 3)
+            cur_ts = ship_dt
+            for seq in range(1, n_legs + 1):
+                leg_id += 1
+                a, b = random.sample(facility_ids, 2)
+                mode = weighted([(1, 6), (5, 3), (3, 1)])
+                leg_status = 3 if (delivered or seq < n_legs) else weighted([(2, 2), (3, 1)])
+                dep = ts(cur_ts)
+                cur_ts = min(cur_ts + timedelta(days=random.randint(1, 4)), TODAY)
+                arr = ts(cur_ts) if leg_status == 3 else None
+                shipment_legs.append((leg_id, ship_id, seq, mode, a, b, leg_status, dep, arr))
+
+            # tracking events
             ev_id += 1
-            tracking_events.append((ev_id, ship_id, weighted([(2, 3), (3, 3), (4, 1)]),
-                                    ts(random_date(ship_dt, min(ship_dt + timedelta(days=transit_est + 5), TODAY))),
-                                    random.choice(facility_ids), "In transit"))
-        if delivered:
-            ev_id += 1
-            tracking_events.append((ev_id, ship_id, 5, ts(date.fromisoformat(delivered)),
-                                    random.choice(facility_ids), "Delivered"))
+            tracking_events.append((ev_id, ship_id, 1, ts(ship_dt), random.choice(facility_ids), "Label created"))
+            for _ in range(random.randint(1, 3)):
+                ev_id += 1
+                tracking_events.append((ev_id, ship_id, weighted([(2, 3), (3, 3), (4, 1)]),
+                                        ts(random_date(ship_dt, min(ship_dt + timedelta(days=transit_est + 5), TODAY))),
+                                        random.choice(facility_ids), "In transit"))
+            if delivered:
+                ev_id += 1
+                tracking_events.append((ev_id, ship_id, 5, ts(date.fromisoformat(delivered)),
+                                        random.choice(facility_ids), "Delivered"))
 
-        # delivery exception (~8%)
-        if random.random() < 0.08:
-            exc_id += 1
-            etype = weighted([(1, 3), (2, 3), (3, 2), (4, 3), (5, 2), (6, 1)])
-            rep = ts(random_date(ship_dt, min(ship_dt + timedelta(days=transit_est + 3), TODAY)))
-            resolved = ts(min(ship_dt + timedelta(days=transit_est + random.randint(4, 8)), TODAY)) if random.random() < 0.7 else None
-            delivery_exceptions.append((exc_id, ship_id, etype, rep, resolved, None))
+            # delivery exception (~8%)
+            if random.random() < 0.08:
+                exc_id += 1
+                etype = weighted([(1, 3), (2, 3), (3, 2), (4, 3), (5, 2), (6, 1)])
+                rep = ts(random_date(ship_dt, min(ship_dt + timedelta(days=transit_est + 3), TODAY)))
+                resolved = ts(min(ship_dt + timedelta(days=transit_est + random.randint(4, 8)), TODAY)) if random.random() < 0.7 else None
+                delivery_exceptions.append((exc_id, ship_id, etype, rep, resolved, None))
 
-        # pick task + lines at origin warehouse
-        pick_id += 1
-        pstatus = 4 if o["status"] in (4, 6) else weighted([(3, 2), (4, 3), (5, 1)])
-        created = ts(o["order_date"])
-        completed = ts(ship_dt) if pstatus == 4 else None
-        pick_tasks.append((pick_id, wh, o["order_id"], pstatus, created, completed))
-        for (line_id, pid, qty) in o["lines"]:
-            pl_id += 1
-            bin_id = random.choice(wh_bins[wh]) if wh_bins[wh] else None
-            pick_lines.append((pl_id, pick_id, pid, bin_id, qty))
+            # pick task + lines at this shipment's origin warehouse (one pick per shipment)
+            pick_id += 1
+            pstatus = 4 if o["status"] in (4, 6) else weighted([(3, 2), (4, 3), (5, 1)])
+            created = ts(o["order_date"])
+            completed = ts(ship_dt) if pstatus == 4 else None
+            pick_tasks.append((pick_id, wh, o["order_id"], pstatus, created, completed))
+            for (line_id, pid, qty) in grp_lines:
+                pl_id += 1
+                bin_id = random.choice(wh_bins[wh]) if wh_bins[wh] else None
+                pick_lines.append((pl_id, pick_id, pid, bin_id, qty))
 
     rows["shipments"] = shipments
     rows["packages"] = packages
@@ -683,13 +731,32 @@ def build():
         total_cost = money(total_cost)
         repl_orders.append((repl, supplier, wh, status, iso(order_dt), iso(expected), received, total_cost))
 
+        # Receipts: goods physically arrive against received (4) and partial (3)
+        # POs. A PO can be delivered over more than one receipt (a supplier ships
+        # the ordered SKUs in two drops), so we split the received lines across
+        # 1-2 receipts. Only lines that actually received stock appear.
+        if status in (3, 4):
+            receivable = [(pid, qr, uc) for (pid, qr, uc) in this_lines if qr > 0]
+            if receivable:
+                if status == 4:
+                    rbase = date.fromisoformat(received)
+                else:   # partial PO: no header received_date, but stock did arrive
+                    rbase = random_date(order_dt, TODAY)
+                if len(receivable) >= 2 and random.random() < MULTI_RECEIPT_RATE:
+                    cut = random.randint(1, len(receivable) - 1)
+                    rcpt_groups = [receivable[:cut], receivable[cut:]]
+                else:
+                    rcpt_groups = [receivable]
+                for grp_idx, grp in enumerate(rcpt_groups):
+                    rcpt_id += 1
+                    r_dt = rbase if grp_idx == 0 else min(rbase + timedelta(days=random.randint(1, 10)), TODAY)
+                    receipts.append((rcpt_id, repl, wh, ts(r_dt), f"GRN{rcpt_id:07d}"))
+                    for (pid, qr, uc) in grp:
+                        rcl_id += 1
+                        cond = weighted([(1, 9), (3, 1)])
+                        receipt_lines.append((rcl_id, rcpt_id, pid, qr, cond))
+
         if status == 4:
-            rcpt_id += 1
-            receipts.append((rcpt_id, repl, wh, ts(date.fromisoformat(received)), f"GRN{rcpt_id:07d}"))
-            for (pid, qr, uc) in this_lines:
-                rcl_id += 1
-                cond = weighted([(1, 9), (3, 1)])
-                receipt_lines.append((rcl_id, rcpt_id, pid, qr, cond))
             inv_num += 1
             istatus = weighted([(4, 6), (3, 2), (2, 1), (5, 1)])
             inv_date = date.fromisoformat(received)
@@ -769,6 +836,17 @@ def build():
             add_txn(tr[1], pid, 3, -qship, "transfer", tid, ts(date.fromisoformat(tr[4])))
             if qrecv:
                 add_txn(tr[2], pid, 4, qrecv, "transfer", tid, ts(date.fromisoformat(tr[4])))
+    # return_restock: physically-received returns dispositioned back to sellable
+    # stock post a positive delta at the warehouse that fulfilled the order.
+    rlines_by_ret = {}
+    for (rl, rid, sku, qty, cond) in return_lines:
+        rlines_by_ret.setdefault(rid, []).append((sku, qty))
+    for (rid, oid, rma, reason, rstatus, disposition, req_iso, received) in returns:
+        if disposition != 1 or rstatus not in (3, 4) or received is None:
+            continue
+        wh = order_ship_wh.get(oid) or random.choice(active_warehouses)
+        for (sku, qty) in rlines_by_ret.get(rid, []):
+            add_txn(wh, int(sku[4:]), 6, qty, "return", rid, ts(date.fromisoformat(received)))
     rows["inventory_transactions"] = txns
 
     _write(rows)

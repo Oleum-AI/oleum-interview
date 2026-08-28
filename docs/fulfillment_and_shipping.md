@@ -299,10 +299,8 @@ carry the `shipment_id` through the CTE and `COUNT(DISTINCT shipment_id)`.
 `shipments` is the operational hub of this domain. One row is one shipment
 fulfilling an order. A fulfilled order (order `status` in the **ORDER_STATUS** code
 set at the fulfilled label) has one or more shipments; a cancelled or draft order
-has none (see `reference.md`). Structurally one order *can* have several shipments
-— `shipments.order_id` is many-to-one — so **never assume one shipment per order**
-in your query design. (In this dataset each order happens to map to exactly one
-shipment, but the schema does not guarantee it.)
+has none (see `reference.md`). One order can have several shipments
+— split shipments are normal in a 3PL — so **never assume one shipment per order**.
 
 Columns:
 
@@ -442,14 +440,12 @@ are terminal.
 
 ### Split shipments — one order, many shipments
 
-A 3PL *can* split a single order into multiple shipments: part of the order
+A 3PL routinely splits a single order into multiple shipments: part of the order
 ships from one warehouse and part from another, or the fast-moving lines ship
 immediately while a backordered line follows later. The schema supports this
 directly — `shipments.order_id` is many-to-one, so an order can have any number of
 shipment rows, each with its own carrier, service, origin warehouse, status, and
-dates. (In this dataset no order is actually split — each maps to a single
-shipment — but you must still design for the possibility.) Practical consequences
-to design around:
+dates. Practical consequences you must design around:
 
 - **"Was the order delivered on time" is not the same as "was the shipment
   delivered on time."** An order with a split shipment is only fully delivered when
@@ -464,9 +460,6 @@ to design around:
   `COUNT(DISTINCT order_id)` for the latter.
 
 ### Worked example — orders that shipped in more than one shipment
-
-This example is illustrative of the pattern; in this dataset every order maps to a
-single shipment, so the `HAVING COUNT(*) > 1` filter returns no rows here.
 
 ```sql
 -- Orders split across multiple shipments, with the span of ship dates.
@@ -753,10 +746,10 @@ read the events and derive state. Two important framing points:
   from `shipments.status`; when it asks "when was the delivery scan," read the
   TRACK_EVENT delivered event's `event_ts`. Do not conflate a TRACK_EVENT label
   with a SHIP_STATUS label — they are different code sets even where the words look
-  similar (both have a "delivered," and they even happen to share the same integer;
-  they are still two separate code sets — SHIP_STATUS on `shipments` is the
-  system-of-record status, TRACK_EVENT on `tracking_events` is a carrier scan — so
-  do not conflate the two; see the **Code Dictionary**).
+  similar. Both happen to put "delivered" at the same integer (`5`), which makes them
+  especially easy to conflate, but a `5` under TRACK_EVENT and a `5` under SHIP_STATUS
+  are decodes from two separate sets; resolve each against its own column (see the
+  **Code Dictionary**).
 - **Latest event.** "Current tracking status" means the event with the maximum
   `event_ts` for the shipment. Use a window function or a correlated subquery to
   get it; do not assume the highest `event_id` is the latest, order by `event_ts`.
@@ -1014,11 +1007,9 @@ ORDER BY units_picked DESC;
 Both `pick_tasks` and `shipments` reference `order_id`, but the schema does not
 carry a direct key between a pick task and the shipment it fed. They are two
 children of the same order, not a chain. To relate the two, join each to the order
-independently. Be careful: structurally an order *could* have several picks *and*
-several shipments, so a naive `pick_tasks` × `shipments` join on `order_id` risks
-the cross-product of picks and shipments for that order — a fan-out on both sides at
-once. (In this dataset each order has one pick and one shipment, so the cross-product
-does not actually inflate here, but write the join as if it could.) When you
+independently. Be careful: an order can have several picks *and* several shipments,
+so a naive `pick_tasks` × `shipments` join on `order_id` produces the cross-product
+of picks and shipments for that order — a fan-out on both sides at once. When you
 genuinely need pick-and-ship together for an order, aggregate each side to the
 order grain first, then join the two summaries, exactly as in the scorecard pattern
 at the end of this document.

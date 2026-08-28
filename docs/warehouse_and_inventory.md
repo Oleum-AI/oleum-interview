@@ -556,24 +556,25 @@ FROM inventory_transactions
 GROUP BY item_code;
 ```
 
-### 5.2 How the ledger reconciles on-hand
+### 5.2 The ledger is movement history, not a rebuild of on-hand
 
-Receipts, shipments, transfers, and adjustments all post to this ledger. That means the cumulative sum of `quantity_delta` for a (warehouse, item_code) pair is the ledger's account of on-hand, and it should reconcile against `inventory.quantity_on_hand`. Reconciliation is the standard integrity check:
+Receipts, shipments, transfers, adjustments, and return restocks all post to this ledger, so the cumulative sum of `quantity_delta` for a (warehouse, item_code) pair is the ledger's *net movement* for that position. It is tempting to treat that sum as a from-scratch reconstruction of `inventory.quantity_on_hand`, but it is not: the ledger carries no opening-balance entry and does not journal every event that set today's stock level, so `SUM(quantity_delta)` will **not** tie out to `quantity_on_hand`. Treat `inventory.quantity_on_hand` as the authoritative current snapshot and the ledger as the movement history behind it — the two answer different questions and are not expected to be equal. If you do compare them, read the difference as the expected gap between a snapshot and a partial movement journal, not as drift to be driven to zero:
 
 ```sql
--- Reconcile ledger balance against the on-hand snapshot; surface any drift
+-- Compare net movement against the on-hand snapshot. The gap is expected — the
+-- ledger is movement history, not a full rebuild of on-hand — so use this to
+-- understand a position, not as a zero-drift integrity check.
 SELECT i.warehouse_id, i.item_code,
        i.quantity_on_hand,
-       COALESCE(t.ledger_balance, 0) AS ledger_balance,
-       i.quantity_on_hand - COALESCE(t.ledger_balance, 0) AS drift
+       COALESCE(t.net_movement, 0) AS net_movement,
+       i.quantity_on_hand - COALESCE(t.net_movement, 0) AS gap
 FROM inventory i
 LEFT JOIN (
-    SELECT warehouse_id, item_code, SUM(quantity_delta) AS ledger_balance
+    SELECT warehouse_id, item_code, SUM(quantity_delta) AS net_movement
     FROM inventory_transactions
     GROUP BY warehouse_id, item_code
 ) t ON t.warehouse_id = i.warehouse_id AND t.item_code = i.item_code
-WHERE i.quantity_on_hand <> COALESCE(t.ledger_balance, 0)
-ORDER BY ABS(i.quantity_on_hand - COALESCE(t.ledger_balance, 0)) DESC;
+ORDER BY ABS(i.quantity_on_hand - COALESCE(t.net_movement, 0)) DESC;
 ```
 
 ### 5.3 Following the reference back to the source document
@@ -758,10 +759,10 @@ When stock physically arrives against a replenishment order, it is booked as a r
 | `received_ts` | Timestamp the goods were received (ISO-8601). |
 | `reference` | A free-text receiving reference (packing slip / ASN number). |
 
-In this dataset a fully-received PO has exactly one receipt — the relationship is 1:1: that single `receipts` row's `receipt_lines` sum up to the PO's `qty_received`. A partially-received PO carries its received quantities on `replenishment_lines.qty_received` but has no `receipts` (or `receipt_lines`) rows at all, so there is nothing that accumulates across multiple receipts.
+A single PO can generate more than one receipt over time (that is exactly how partial receipts accumulate): each delivery against the PO is its own `receipts` row, and their `receipt_lines` sum up to the PO's `qty_received`.
 
 ```sql
--- The receipt booked against a PO (one row for a fully-received PO; none for a partial)
+-- Receiving history for a PO
 SELECT r.receipt_id, r.received_ts, r.reference,
        SUM(rlx.qty_received) AS units_this_receipt
 FROM receipts r
@@ -1079,7 +1080,7 @@ The tables in this domain describe one continuous flow, and most substantive que
 1. **Source.** `suppliers` and `supplier_products` define who we buy from, at what cost, with what lead time, and which supplier is preferred per `item_code`.
 2. **Trigger.** `inventory` positions drop below `reorder_point` (`quantity_on_hand < reorder_point`), which calls for a purchase of `reorder_qty` units from the preferred supplier.
 3. **Order.** A `replenishment_orders` header with `replenishment_lines` records the purchase; its status runs through PO_STATUS toward the received terminal.
-4. **Receive.** `receipts` and `receipt_lines` book the physical arrival (with an ITEM_CONDITION on each line); a fully-received PO gets exactly one receipt (1:1), while a partial PO carries received quantities on its `replenishment_lines` but has no receipts row.
+4. **Receive.** `receipts` and `receipt_lines` book the physical arrival (with an ITEM_CONDITION on each line); partial deliveries accumulate as multiple receipts and show as a partial PO status.
 5. **Post.** Every receipt posts a positive-delta receipt movement to `inventory_transactions`, which raises `inventory.quantity_on_hand`.
 6. **Bill.** `supplier_invoices` (INVOICE_STATUS) captures the vendor's bill against the PO — detail in reference.md.
 7. **Rebalance.** `stock_transfers` and `stock_transfer_lines` (TRANSFER_STATUS) move stock between warehouses, posting matched transfer_out/transfer_in movements so network on-hand nets while per-site positions shift.
@@ -1090,6 +1091,6 @@ Three disciplines carry through every one of those steps and are worth restating
 
 - **Identify products by `item_code`.** Every table here uses `item_code` (INTEGER = `products.product_id`). Never join it to a SKU string; bridge through `products` when a question is phrased in SKUs (see reference.md).
 - **Decode each coded column through its own named code set.** ZONE_TYPE, SUPPLIER_STATUS, PO_STATUS, INV_TXN_TYPE, ITEM_CONDITION, INVOICE_STATUS, TRANSFER_STATUS, ADJ_REASON, and CYCLE_COUNT_STATUS are all separate sets; the integer values live only in reference.md. The "received" of a PO, the "received" of a transfer, and the "reconciled" of a cycle count are different values in different sets — never carry a decode across tables.
-- **Trust the signed ledger for movement math.** `quantity_delta` (in both `inventory_transactions` and `inventory_adjustments`) already carries direction in its sign; sum it directly to reconcile on-hand, and it should tie back to `inventory.quantity_on_hand`.
+- **Trust the signed ledger for movement math.** `quantity_delta` (in both `inventory_transactions` and `inventory_adjustments`) already carries direction in its sign; sum it directly for net movement. But the ledger is movement history, not a rebuild of on-hand — it will not tie back to `inventory.quantity_on_hand` (§5.2). Read `quantity_on_hand` for the current snapshot; use the ledger for how a position moved.
 
 For the precise definitions behind the derived measures used above, see reference.md; for the status lifecycles, reference.md; for identifiers and the SKU⇄item_code bridge, reference.md; for code values, reference.md; and for supplier and carrier billing, reference.md.
