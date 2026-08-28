@@ -11,9 +11,7 @@ however you see fit — add tools, change prompts, edit the control flow, etc.
 A handful of question/answer pairs in `benchmark_questions.md` serve as a
 performance benchmark.
 
-For Part 1 you're working with one database about a small retail chain — 12
-tables: categories, suppliers, products, stores, warehouses, employees,
-inventory, customers, and sales/purchase orders with their line items.
+For Part 1 you're working with one database about a small retail chain with 12 tables.
 
 Out of the box, the agent gets most of the benchmark questions wrong. That's
 because crucial information about the data's ambiguities lives in
