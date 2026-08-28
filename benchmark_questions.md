@@ -2,7 +2,7 @@
 
 What is our order fill rate? — **77.83%**
 
-How many orders were placed through the marketplace channel? Count every marketplace order that was actually placed — i.e. any non-draft status, so cancels and returns are included but drafts are not. — **3,759**
+How many orders were placed through the marketplace channel? Apply our standard reporting exclusions (drop internal_test orders); among the rest, count every order that was actually placed — i.e. any non-draft status, so cancelled and returned orders are included but drafts are not. — **3,759**
 
 What was net revenue after returns for 2024? — **$9,936,676.31**
 
